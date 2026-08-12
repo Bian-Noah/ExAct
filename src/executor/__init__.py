@@ -1,1 +1,111 @@
-# executor 包
+"""executor 模块：连接 Agent（LLM 大脑）与 env（物理世界）的执行器。
+
+核心组件：
+- ExecResult: 执行结果 dataclass
+- Executor: 主循环类，循环调 VLA 驱动 env，直到完成或超时
+"""
+
+from dataclasses import dataclass
+
+from env.base import BaseEnv
+from executor.build_input import build_vla_input
+from executor.check_done import check_done
+from executor.vla import BaseVLA
+from utils.logging import setup_logging
+
+
+@dataclass
+class ExecResult:
+    """executor.run_action 的返回值。
+
+    Attributes:
+        success: 是否成功完成（达到 done_criteria）。
+        steps: 实际执行的步数。
+        final_obs: 最后一步的 obs dict。
+        message: 完成或失败的原因描述。
+    """
+
+    success: bool
+    steps: int
+    final_obs: dict
+    message: str
+
+
+class Executor:
+    """动作执行器主循环。
+
+    聚合一个 BaseVLA 实例和 max_steps 参数，循环调用 VLA 驱动 env 推进物理，
+    直到满足 done_criteria 或达到 max_steps。
+
+    不持有 env 引用（env 作为 run_action 参数传入，降低耦合）。
+    不捕获 env.step 异常（异常透传给上层）。
+    """
+
+    def __init__(self, vla: BaseVLA, max_steps: int = 50):
+        """初始化 Executor。
+
+        Args:
+            vla: BaseVLA 实例（MockVLA / OpenVLA 等）。
+            max_steps: 最大循环步数，默认 50。
+        """
+        self.vla = vla
+        self.max_steps = max_steps
+        self.logger = setup_logging(__name__)
+
+    def run_action(
+        self,
+        env: BaseEnv,
+        instruction: str,
+        done_criteria: str,
+        target_pos: tuple | None = None,
+    ) -> ExecResult:
+        """循环调 VLA 驱动 env，直到完成或超时。
+
+        Args:
+            env: BaseEnv 实例（PyBulletPandaEnv / FakeEnv 等）。
+            instruction: 自然语言指令字符串。
+            done_criteria: 完成标准字符串（如 "reached" / "grasped"）。
+            target_pos: 目标位置 (x, y, z)。reached 规则下用于判断 ee_pos
+                是否到达目标位置；未提供时 check_done 回退到前后位移兜底逻辑。
+
+        Returns:
+            ExecResult dataclass。
+
+        Raises:
+            env.step 抛出的异常透传，不捕获。
+        """
+        obs_after: dict = {}
+        done = False
+        reason = ""
+        step = 0
+
+        for step in range(self.max_steps):
+            obs_before = env.get_obs()
+            vla_input = build_vla_input(obs_before, instruction)
+            action = self.vla.predict(vla_input["image"], instruction)
+            obs_after, _, _, _ = env.step(action)
+            done, reason = check_done(
+                obs_before, obs_after, done_criteria, target_pos=target_pos
+            )
+            if done:
+                break
+
+        # 构造返回 message
+        if done:
+            message = reason
+        else:
+            message = f"达到最大步数 {self.max_steps}，未完成：{reason}"
+
+        # max_steps=0 时 step 仍为 0（range(0) 不进入循环）
+        steps = step + 1 if self.max_steps > 0 else 0
+
+        return ExecResult(
+            success=done,
+            steps=steps,
+            final_obs=obs_after,
+            message=message,
+        )
+
+
+# 方便 from executor import Executor, ExecResult, MockVLA
+from executor.vla import MockVLA  # noqa: E402
