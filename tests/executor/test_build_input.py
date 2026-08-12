@@ -45,10 +45,11 @@ def test_build_vla_input_empty_instruction():
 
 
 def test_build_vla_input_missing_rgb():
-    """obs 缺 rgb → ValueError。"""
+    """obs 缺 rgb → 兼容（rgb 可选，仅 ee_pos 必填）。"""
     obs = {"ee_pos": (0, 0, 0)}
-    with pytest.raises(ValueError, match="rgb"):
-        build_vla_input(obs, "move")
+    result = build_vla_input(obs, "move")
+    assert "rgb" not in result
+    assert result["instruction"] == "move"
 
 
 def test_build_vla_input_missing_ee_pos():

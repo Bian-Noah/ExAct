@@ -16,6 +16,7 @@ gymnasium>=0.29
 # --- LLM 大脑 ---
 langchain>=0.3
 langchain-core>=0.3
+langchain-openai>=0.3
 requests>=2.31
 
 # --- 测试 ---

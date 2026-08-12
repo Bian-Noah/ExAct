@@ -66,8 +66,12 @@ class BaseEnv(ABC):
         """
 
     @abstractmethod
-    def get_obs(self) -> dict:
+    def get_obs(self, include_rgb: bool = True) -> dict:
         """返回当前观测，不推进物理。
+
+        Args:
+            include_rgb: 是否包含 RGB 图像。False 时跳过 GPU 渲染，
+                适用于仅需 object_info/ee_pos 的轻量调用（如 observe 工具）。
 
         Returns:
             obs dict，见观测字典契约。

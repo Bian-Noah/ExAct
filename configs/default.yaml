@@ -1,1 +1,21 @@
-# 默认配置文件（第四步迭代填充）
+# ExAct 默认配置文件
+# ★ llm.api_key 请手动填写为您的 MiniMax API Key（保持占位符时代码会校验，不可为空）
+# 建议：复制此文件为 configs/local.yaml 并在 .gitignore 中忽略 local.yaml，可避免提交真实密钥
+
+env:
+  use_gui: true
+  camera_resolution: [640, 480]   # list，加载时转为 tuple[int, int]
+
+vla:
+  backend: mock                   # "mock" | "openvla"
+  model_path: null                # 仅 openvla 需要，mock 设为 null
+  max_steps: 50                   # 单个动作最多执行步数
+
+llm:
+  api_key: "YOUR_API_KEY_HERE"    # ★ 用户手动填写，提交代码时保持占位符
+  model: "MiniMax-M3"
+  base_url: "https://api.minimax.chat/v1"
+  max_tokens: 2048
+
+explore:
+  enabled: false                  # 第五步再启用

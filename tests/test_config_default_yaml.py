@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+import os
+
+from src.config.loader import AppConfig, load_config
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DEFAULT_YAML_PATH = os.path.join(PROJECT_ROOT, "configs", "default.yaml")
+
+
+def test_configs_default_yaml_exists():
+    assert os.path.isfile(DEFAULT_YAML_PATH), (
+        f"默认配置文件不存在：{DEFAULT_YAML_PATH}"
+    )
+
+
+def test_functional_scenario_a_load_default_yaml():
+    """功能场景 A：加载磁盘上真实的 configs/default.yaml 并校验核心字段。"""
+    cfg = load_config(DEFAULT_YAML_PATH)
+
+    assert isinstance(cfg, AppConfig)
+    # env
+    assert cfg.env.use_gui is True
+    assert cfg.env.camera_resolution == (640, 480)
+    # vla
+    assert cfg.vla.backend == "mock"
+    assert cfg.vla.model_path is None
+    assert cfg.vla.max_steps == 50
+    # llm（api_key 只要是占位符或空均合法）
+    assert cfg.llm.api_key in {"YOUR_API_KEY_HERE", ""} or len(cfg.llm.api_key) > 0
+    assert cfg.llm.model == "MiniMax-M3"
+    assert cfg.llm.base_url == "https://api.minimax.chat/v1"
+    assert cfg.llm.max_tokens == 2048
+    # explore
+    assert cfg.explore.enabled is False

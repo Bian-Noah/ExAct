@@ -102,7 +102,7 @@ def test_baseenv_full_subclass_can_instantiate_and_call():
         def render(self):
             return np.zeros((4, 4, 3), dtype=np.uint8)
 
-        def get_obs(self):
+        def get_obs(self, include_rgb: bool = True):
             return {"rgb": np.zeros((4, 4, 3), dtype=np.uint8),
                     "object_info": [], "ee_pos": (0.0, 0.0, 0.0),
                     "state_desc": "test"}

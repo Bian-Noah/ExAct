@@ -43,6 +43,21 @@ class PyBulletPandaEnv(BaseEnv):
         self._object_ids: list[int] = []
         self._plane_id = None
 
+    def _is_connected(self) -> bool:
+        """检查 PyBullet 物理服务器是否仍处于连接状态。"""
+        if self._client_id < 0:
+            return False
+        try:
+            info = p.getConnectionInfo(self._client_id)
+            return info.get("isConnected", False)
+        except Exception:
+            return False
+
+    def _ensure_connected(self) -> None:
+        """确保物理服务器已连接，断连时抛出 RuntimeError。"""
+        if not self._is_connected():
+            raise RuntimeError("PyBullet physics server not connected")
+
     def reset(self, task_spec: dict, seed: int = 0) -> dict:
         """重置环境到初始状态。
 
@@ -117,6 +132,7 @@ class PyBulletPandaEnv(BaseEnv):
         Returns:
             (obs, reward, done, info) — 当前 reward=0.0，done=False，info={}。
         """
+        self._ensure_connected()
         # 获取当前末端位置
         link_state = p.getLinkState(
             self._robot_id,
@@ -171,6 +187,8 @@ class PyBulletPandaEnv(BaseEnv):
         Returns:
             shape=(H, W, 3), dtype=uint8, 范围 [0, 255]。
         """
+        logger.info("render() 开始 — 调用 p.getCameraImage (GPU)")
+        self._ensure_connected()
         width, height = self.camera_resolution
 
         # 相机参数
@@ -202,14 +220,20 @@ class PyBulletPandaEnv(BaseEnv):
         rgb_array = np.array(px, dtype=np.uint8)
         rgb_array = rgb_array.reshape((height, width, 4))[:, :, :3]
 
+        logger.info("render() 完成")
         return rgb_array
 
-    def get_obs(self) -> dict:
+    def get_obs(self, include_rgb: bool = True) -> dict:
         """返回当前观测，不推进物理。
+
+        Args:
+            include_rgb: 是否包含 RGB 图像。False 时跳过 GPU 渲染，
+                适用于仅需 object_info/ee_pos 的轻量调用。
 
         Returns:
             obs dict，包含 rgb/object_info/ee_pos/state_desc。
         """
+        self._ensure_connected()
         # 末端位置
         link_state = p.getLinkState(
             self._robot_id,
@@ -220,7 +244,6 @@ class PyBulletPandaEnv(BaseEnv):
 
         # 物体信息
         object_info = []
-        all_ids = [self._plane_id, self._robot_id] + self._object_ids
         for obj_id in self._object_ids:
             pos, quat = p.getBasePositionAndOrientation(
                 obj_id, physicsClientId=self._client_id
@@ -240,16 +263,26 @@ class PyBulletPandaEnv(BaseEnv):
             f"末端在({ee_pos[0]:.2f},{ee_pos[1]:.2f},{ee_pos[2]:.2f})"
         )
 
-        return {
-            "rgb": self.render(),
+        obs = {
             "object_info": object_info,
             "ee_pos": ee_pos,
             "state_desc": state_desc,
         }
 
+        if include_rgb:
+            obs["rgb"] = self.render()
+        else:
+            obs["rgb"] = None
+
+        return obs
+
     def close(self) -> None:
         """释放所有资源，断开仿真连接。"""
         if self._client_id >= 0:
-            p.disconnect(self._client_id)
-            self._client_id = -1
-            logger.info("PyBullet 仿真已断开")
+            try:
+                p.disconnect(self._client_id)
+                logger.info("PyBullet 仿真已断开")
+            except Exception:
+                pass  # 已断连，忽略
+            finally:
+                self._client_id = -1

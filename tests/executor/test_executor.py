@@ -45,7 +45,7 @@ class FakeEnv(BaseEnv):
     def render(self):
         return self._current_obs.get("rgb", np.zeros((10, 10, 3), dtype=np.uint8))
 
-    def get_obs(self):
+    def get_obs(self, include_rgb: bool = True):
         return self._current_obs
 
     def close(self):
@@ -86,7 +86,7 @@ class FakeEnvWithEePosControl(BaseEnv):
     def render(self):
         return np.zeros((10, 10, 3), dtype=np.uint8)
 
-    def get_obs(self):
+    def get_obs(self, include_rgb: bool = True):
         return self._make_obs()
 
     def close(self):
@@ -116,7 +116,7 @@ class FakeEnvRaisingStep(BaseEnv):
     def render(self):
         return np.zeros((10, 10, 3), dtype=np.uint8)
 
-    def get_obs(self):
+    def get_obs(self, include_rgb: bool = True):
         return {
             "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
             "ee_pos": (0.0, 0.0, 0.0),
@@ -261,7 +261,7 @@ class FakeEnvWithTargetApproach(BaseEnv):
     def render(self):
         return np.zeros((10, 10, 3), dtype=np.uint8)
 
-    def get_obs(self):
+    def get_obs(self, include_rgb: bool = True):
         return self._make_obs()
 
     def close(self):
