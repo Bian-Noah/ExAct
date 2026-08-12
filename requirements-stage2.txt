@@ -1,0 +1,8 @@
+# ExAct 阶段二额外依赖（RTX 4060, CUDA）
+# 先安装 PyTorch CUDA 版，再装本文件
+# pip install -r requirements-stage2.txt
+
+torch>=2.2
+transformers>=4.40
+bitsandbytes>=0.43
+accelerate>=0.27

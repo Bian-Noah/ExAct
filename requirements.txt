@@ -1,0 +1,31 @@
+# ExAct 项目依赖
+# 阶段一（M4 Mac，无 GPU）
+# 安装步骤:
+#   conda install -c conda-forge pybullet    # pybullet 需用 conda 安装（pip 无 macOS ARM64 预编译 wheel）
+#   pip install -r requirements.txt          # 其余依赖用 pip
+
+# --- 基础 ---
+pyyaml>=6.0
+numpy>=1.24
+Pillow>=10.0
+
+# --- 仿真环境 ---
+# pybullet 通过 conda-forge 安装，不在此列出
+gymnasium>=0.29
+
+# --- LLM 大脑 ---
+langchain>=0.3
+langchain-core>=0.3
+requests>=2.31
+
+# --- 测试 ---
+pytest>=8.0
+
+# ========================================
+# 阶段二（RTX 4060, CUDA）—— 额外安装:
+#   pip install -r requirements-stage2.txt
+# ========================================
+# torch>=2.2
+# transformers>=4.40
+# bitsandbytes>=0.43
+# accelerate>=0.27
