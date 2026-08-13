@@ -26,7 +26,10 @@ from src.config.loader import (
 
 def test_env_config_defaults():
     cfg = EnvConfig()
-    assert cfg.use_gui is True
+    # iter2-renderer-env-mode: use_gui deprecated, 默认 mode=direct 推导为 False
+    assert cfg.use_gui is False
+    assert cfg.mode == "direct"
+    assert cfg.renderer == "auto"
     assert cfg.camera_resolution == (640, 480)
 
 
@@ -86,7 +89,8 @@ def test_from_dict_env_camera_list_to_tuple():
     cfg = _from_dict({"camera_resolution": [320, 240]}, EnvConfig)
     assert cfg.camera_resolution == (320, 240)
     assert isinstance(cfg.camera_resolution, tuple)
-    assert cfg.use_gui is True  # 默认值
+    # iter2: use_gui 默认 False（由 mode=direct 推导）
+    assert cfg.use_gui is False
 
 
 def test_from_dict_vla_model_path_null():
@@ -264,7 +268,10 @@ def test_load_config_empty_yaml_uses_defaults():
     path = _write_yaml("")
     try:
         cfg = load_config(path)
-        assert cfg.env.use_gui is True
+        # iter2: use_gui 默认 False（由 mode=direct 推导）
+        assert cfg.env.use_gui is False
+        assert cfg.env.mode == "direct"
+        assert cfg.env.renderer == "auto"
         assert cfg.env.camera_resolution == (640, 480)
         assert cfg.vla.backend == "mock"
         assert cfg.vla.model_path is None

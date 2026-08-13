@@ -54,7 +54,9 @@ class TestConstruction:
 
     def test_accepts_none_uses_defaults(self):
         env = PyBulletPandaEnv()
-        assert env.use_gui is True
+        # iter2: 默认 mode=direct, use_gui=False
+        assert env.use_gui is False
+        assert env._mode == "direct"
         assert env.camera_resolution == (640, 480)
         assert env.robot_config.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
 

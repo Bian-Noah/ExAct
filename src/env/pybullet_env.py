@@ -7,9 +7,15 @@ iter1-pipeline-refactor-config 后：
 - 构造签名改为 `PyBulletPandaEnv(env_config: EnvConfig, robot_config: RobotConfig)`
 - 内部 `ARM_JOINT_INDICES` / `EE_LINK_INDEX` / `FINGER_JOINT_INDICES` 改为从 `robot_config` 读取
 - 模块级常量保留作 `RobotConfig` 默认值的别名引用
+
+iter2-renderer-env-mode 新增：
+- 静态方法 `_resolve_renderer()` 解析 renderer 配置字符串为 pybullet 渲染器常量
+- `__init__` 解析 `self._renderer` / `self._mode` / `use_gui` 字段
 """
 
+import platform
 import time
+import warnings
 
 import numpy as np
 import pybullet as p
@@ -27,6 +33,9 @@ ARM_JOINT_INDICES = tuple(RobotConfig().arm_joint_indices)
 EE_LINK_INDEX = RobotConfig().ee_link_index
 # 夹爪关节索引
 FINGER_JOINT_INDICES = tuple(RobotConfig().finger_joint_indices)
+
+# iter2-renderer-env-mode：renderer 配置合法值
+_RENDERER_VALID_VALUES: frozenset[str] = frozenset({"auto", "cpu", "gpu"})
 
 
 class PyBulletPandaEnv(BaseEnv):
@@ -50,7 +59,25 @@ class PyBulletPandaEnv(BaseEnv):
 
         self.env_config = env_config
         self.robot_config = robot_config
+        # iter2-renderer-env-mode：解析渲染器常量与连接模式
+        self._renderer = self._resolve_renderer(env_config.renderer)
+        self._mode = env_config.mode
+        # use_gui 字段保留向后兼容：默认从 mode 推导
         self.use_gui = env_config.use_gui
+        # 若显式传 use_gui=True 但 mode 不是 gui，发出 deprecation 警告
+        if env_config.use_gui and env_config.mode != "gui":
+            warnings.warn(
+                "EnvConfig.use_gui 已 deprecated，请使用 mode='gui' 字段。"
+                "当前 use_gui=True 与 mode='{}' 不一致，建议迁移。".format(env_config.mode),
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            # 兼容性：旧 use_gui=True 仍尝试开 GUI（以 use_gui 为准）
+            self.use_gui = True
+            self._mode = "gui"
+        else:
+            # 一致：use_gui 由 mode 推导
+            self.use_gui = (env_config.mode == "gui")
         self.camera_resolution = env_config.camera_resolution
 
         # 内部字段
@@ -68,6 +95,61 @@ class PyBulletPandaEnv(BaseEnv):
             return info.get("isConnected", False)
         except Exception:
             return False
+    @staticmethod
+    def _resolve_connection_mode(mode: str) -> int:
+        """将 mode 配置字符串解析为 pybullet 连接模式常量。
+
+        Args:
+            mode: "direct" | "gui"
+
+        Returns:
+            pybullet.DIRECT 或 pybullet.GUI
+
+        Raises:
+            ValueError: 非法 mode
+        """
+        if mode == "direct":
+            return p.DIRECT
+        if mode == "gui":
+            return p.GUI
+        raise ValueError(
+            f"mode 配置值非法：{mode!r}，合法值为 ['direct', 'gui']"
+        )
+
+    @staticmethod
+    def _resolve_renderer(config_value: str) -> int:
+        """将 renderer 配置字符串解析为 pybullet 渲染器常量。
+
+        映射关系：
+          - "cpu"  → p.ER_TINY_RENDERER（CPU 软渲染，跨平台稳定）
+          - "gpu"  → p.ER_BULLET_HARDWARE_OPENGL（GPU 渲染，需平台支持）
+          - "auto" → Apple Silicon 用 ER_TINY_RENDERER，其他平台用 ER_BULLET_HARDWARE_OPENGL
+
+        Args:
+            config_value: "auto" | "cpu" | "gpu"
+
+        Returns:
+            pybullet.ER_TINY_RENDERER 或 pybullet.ER_BULLET_HARDWARE_OPENGL
+
+        Raises:
+            ValueError: 非法值（不在合法集合内）
+        """
+        if config_value not in _RENDERER_VALID_VALUES:
+            raise ValueError(
+                f"renderer 配置值非法：{config_value!r}，"
+                f"合法值集合为 {sorted(_RENDERER_VALID_VALUES)}"
+            )
+        if config_value == "cpu":
+            return p.ER_TINY_RENDERER
+        if config_value == "gpu":
+            return p.ER_BULLET_HARDWARE_OPENGL
+        # "auto"：根据平台判断
+        is_apple_silicon = (
+            platform.system() == "Darwin" and platform.processor() == "arm"
+        )
+        if is_apple_silicon:
+            return p.ER_TINY_RENDERER
+        return p.ER_BULLET_HARDWARE_OPENGL
 
     def _ensure_connected(self) -> None:
         """确保物理服务器已连接，断连时抛出 RuntimeError。"""
@@ -89,7 +171,8 @@ class PyBulletPandaEnv(BaseEnv):
         if self._client_id >= 0:
             p.disconnect(self._client_id)
 
-        connection_mode = p.GUI if self.use_gui else p.DIRECT
+        # iter2-renderer-env-mode：连接模式由 self._mode 决定
+        connection_mode = self._resolve_connection_mode(self._mode)
         self._client_id = p.connect(connection_mode)
         p.setAdditionalSearchPath(
             pybullet_data.getDataPath(), physicsClientId=self._client_id
@@ -205,10 +288,20 @@ class PyBulletPandaEnv(BaseEnv):
     def render(self) -> np.ndarray:
         """返回当前相机 RGB 图像。
 
+        iter2-renderer-env-mode：渲染器由 self._renderer 决定（auto/cpu/gpu），
+        日志中动态标注实际使用的渲染器（CPU/TINY_RENDERER 或 GPU/OPENGL）。
+
         Returns:
             shape=(H, W, 3), dtype=uint8，范围 [0, 255]。
         """
-        logger.info("render() 开始 — 调用 p.getCameraImage (GPU)")
+        renderer_label = (
+            "CPU/TINY_RENDERER"
+            if self._renderer == p.ER_TINY_RENDERER
+            else "GPU/OPENGL"
+        )
+        logger.info(
+            f"render() 开始 — 渲染器={self._renderer} ({renderer_label})"
+        )
         self._ensure_connected()
         width, height = self.camera_resolution
 
@@ -228,13 +321,14 @@ class PyBulletPandaEnv(BaseEnv):
             farVal=100.0,
         )
 
-        # 获取相机图像
+        # 获取相机图像（iter2-renderer-env-mode：传入 renderer 参数）
         (_, _, px, _, _) = p.getCameraImage(
             width,
             height,
             viewMatrix=view_matrix,
             projectionMatrix=proj_matrix,
             physicsClientId=self._client_id,
+            renderer=self._renderer,
         )
 
         # RGBA → RGB

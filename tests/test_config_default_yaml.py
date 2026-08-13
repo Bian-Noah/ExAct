@@ -26,8 +26,10 @@ def test_functional_scenario_a_load_default_yaml():
     cfg = load_config(DEFAULT_YAML_PATH)
 
     assert isinstance(cfg, AppConfig)
-    # env
-    assert cfg.env.use_gui is True
+    # env (iter2-renderer-env-mode: use_gui 由 mode 替代，默认 mode=direct / renderer=auto)
+    assert cfg.env.use_gui is False
+    assert cfg.env.mode == "direct"
+    assert cfg.env.renderer == "auto"
     assert cfg.env.camera_resolution == (640, 480)
     # vla
     assert cfg.vla.backend == "mock"

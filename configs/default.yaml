@@ -3,7 +3,8 @@
 # 建议：复制此文件为 configs/local.yaml 并在 .gitignore 中忽略 local.yaml，可避免提交真实密钥
 
 env:
-  use_gui: true
+  mode: direct                # "direct" | "gui"   是否开 GUI 窗口
+  renderer: auto              # "auto" | "cpu" | "gpu"   渲染器选择（auto = 平台自动判断）
   camera_resolution: [640, 480]   # list，加载时转为 tuple[int, int]
 
 vla:

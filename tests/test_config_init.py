@@ -37,7 +37,9 @@ def test_config_all_exports_present():
 
 def test_imported_dataclasses_are_correct_types():
     # 确保导入的 dataclass 可以直接实例化
-    assert EnvConfig().use_gui is True
+    assert EnvConfig().use_gui is False  # iter2: use_gui deprecated, 默认由 mode=direct 推导为 False
+    assert EnvConfig().mode == "direct"
+    assert EnvConfig().renderer == "auto"
     assert VLAConfig().backend == "mock"
     assert LLMConfig().model == "MiniMax-M3"
     assert ExploreConfig().enabled is False

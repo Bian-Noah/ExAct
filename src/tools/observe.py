@@ -55,8 +55,8 @@ class ObserveTool(BaseTool):
         """
         _log = logging.getLogger("observe")
         _log.info(f"observe 调用开始 target={target}")
-        # observe 工具只需要 ee_pos 和 object_info，跳过 RGB 渲染
-        obs = self.env.get_obs(include_rgb=False)
+        # iter2-renderer-env-mode：恢复 RGB 图像获取（之前为绕开段错误硬编码 False）
+        obs = self.env.get_obs(include_rgb=True)
         _log.info("observe 调用完成")
         lines: list[str] = []
 

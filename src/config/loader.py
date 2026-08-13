@@ -4,11 +4,15 @@ import os
 import sys
 import warnings
 from dataclasses import dataclass, fields, is_dataclass
-from typing import TypeVar, Type, Optional, get_type_hints
+from typing import TypeVar, Type, Optional, get_type_hints, Literal
 
 import yaml
 
 T = TypeVar("T")
+
+# EnvConfig 字段值合法集合（iter2-renderer-env-mode 引入）
+_ENV_MODE_VALUES: frozenset[str] = frozenset({"direct", "gui"})
+_ENV_RENDERER_VALUES: frozenset[str] = frozenset({"auto", "cpu", "gpu"})
 
 
 def _resolve_field_types(cls: type) -> dict[str, type]:
@@ -34,8 +38,19 @@ def _resolve_field_types(cls: type) -> dict[str, type]:
 
 @dataclass
 class EnvConfig:
-    use_gui: bool = True
+    """环境配置。
+
+    iter2-renderer-env-mode 新增字段：
+      - mode: "direct" | "gui"，是否开启 PyBullet GUI 窗口
+      - renderer: "auto" | "cpu" | "gpu"，getCameraImage 使用的渲染器
+
+    use_gui 字段保留为 deprecated（iter1 引入），由 mode 推导。
+    """
+
+    mode: Literal["direct", "gui"] = "direct"
+    renderer: Literal["auto", "cpu", "gpu"] = "auto"
     camera_resolution: tuple[int, int] = (640, 480)
+    use_gui: bool = False  # deprecated: 由 mode 替代，保留向后兼容
 
 
 @dataclass
@@ -203,6 +218,21 @@ def _from_dict(data: dict, cls: Type[T]) -> T:
                     f"字段 'EnvConfig.camera_resolution' 格式错误：两个元素都必须是整数，得到 {raw_value!r}"
                 )
             kwargs[fname] = (raw_value[0], raw_value[1])
+            continue
+        # EnvConfig.mode / renderer 字段值合法性校验（iter2-renderer-env-mode）
+        if cls is EnvConfig and fname == "mode":
+            if not isinstance(raw_value, str) or raw_value not in _ENV_MODE_VALUES:
+                raise ValueError(
+                    f"字段 'EnvConfig.mode' 取值错误：期望 {_ENV_MODE_VALUES} 之一，得到 {raw_value!r}"
+                )
+            kwargs[fname] = raw_value
+            continue
+        if cls is EnvConfig and fname == "renderer":
+            if not isinstance(raw_value, str) or raw_value not in _ENV_RENDERER_VALUES:
+                raise ValueError(
+                    f"字段 'EnvConfig.renderer' 取值错误：期望 {_ENV_RENDERER_VALUES} 之一，得到 {raw_value!r}"
+                )
+            kwargs[fname] = raw_value
             continue
         # 通用 tuple 字段：list → tuple 转换 + 元素类型校验
         # 适用于 RobotConfig.arm_joint_indices / base_position 等
