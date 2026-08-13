@@ -17,7 +17,7 @@
 | 3     | 实验数据持久化（埋点解耦）          | 通过埋点机制收集实验数据，与业务管线解耦                          | Mock               | M4 Air      | ✅ 已完成     |
 | 4     | 图片存储器基础                      | 图片存取与 URL 协议，仅图片存储与引用                             | Mock               | M4 Air      | ⏳ 待启动     |
 | 5     | LLM 多模态视觉接入                  | LLM 通过 URL 看到图片（多模态输入），observe 工具返回图片 URL      | Mock               | M4 Air      | ✅ 已完成     |
-| 6     | VLA 图像输入链路                    | 图片 URL 传递给 VLA，executor/run_action 支持 image_url         | Mock               | M4 Air      | ⏳ 待启动     |
+| 6     | VLA 链路验证                      | 验证 VLA 已能从 env 拿到图（链路通了，无需 LLM 介入）           | Mock               | M4 Air      | ⏳ 待启动     |
 | 7     | LLM-VLA 适配器                      | 用 MiniMax-M3 本身作为伪 VLA，机械臂真正响应指令                 | **LLMVLA**         | M4 Air      | ⏳ 待启动     |
 | 8     | 探索机制 v1 - 基础探索              | 先探索再执行的双阶段流程跑通                                     | LLMVLA             | M4 Air      | ⏳ 待启动     |
 | 9     | 探索机制 v2 - 策略化探索与知识利用  | 提升探索质量，验证知识传递效果                                   | LLMVLA             | M4 Air      | ⏳ 待启动     |
@@ -25,7 +25,7 @@
 | 11    | 小型 VLA 接入                       | 训练真实小型 VLA，替换 LLM-VLA                                   | **SmallVLA**       | M4 Air      | ⏳ 待启动     |
 | 12    | OpenVLA 接入与正式实验              | 探索机制完善后，接入 OpenVLA 做正式对照                          | **OpenVLA-7B 4bit** | 4060 笔记本 | ⏳ 待启动     |
 
-> 拆分说明：原 Iteration 4「图片存储器与 LLM 视觉能力」任务过多（包含图片存储、observe 改造、action 改造、executor 链路、BaseVLA 契约、config 扩展、pipeline 集成 7 件事），现拆为 4 / 5 / 6 三个迭代。原 Iteration 5（LLM-VLA 适配器）顺延为新 Iteration 7。原 Iteration 3 数据保存方案由"扩展管线接口"改为"ExperimentRecorder 一体化"——业务代码 `recorder.emit(...)` 埋点，由 `src/experiment/recorder.py` 一个类同时负责收集与保存三类数据（`log` → `experiment.log`、`observe_image` → `observer/*.png`、`video_frame` 占位）。每次实验产物在 `ExAct/data/experiment/{时间戳}/` 下。详见下文。
+> 拆分说明：原 Iteration 4「图片存储器与 LLM 视觉能力」任务过多（包含图片存储、observe 改造、action 改造、executor 链路、BaseVLA 契约、config 扩展、pipeline 集成 7 件事），现拆为 4 / 5 / 6 三个迭代。原 Iteration 5（LLM-VLA 适配器）顺延为新 Iteration 7。原 Iteration 3 数据保存方案由"扩展管线接口"改为"ExperimentRecorder 一体化"——业务代码 `recorder.emit(...)` 埋点，由 `src/experiment/recorder.py` 一个类同时负责收集与保存三类数据（`log` → `experiment.log`、`observe_image` → `observer/*.png`、`video_frame` 占位）。每次实验产物在 `ExAct/data/experiment/{时间戳}/` 下。Iteration 6 原计划"image_url 传递链路"反思后改为"VLA 链路验证"——VLA 已能从 env 拿到图，无需 LLM 介入传递，仅补一个 print 验证链路工作。详见下文。
 
 ---
 
@@ -456,54 +456,69 @@ Iteration 4 解决了图片的存储和引用，但 observe 工具仍然只返�
 
 ---
 
-## Iteration 6: VLA 图像输入链路
+## Iteration 6: VLA 链路验证
 
-**目标**：让 action 工具可以携带图片 URL，executor 把 URL 解析为 ndarray 传给 VLA，完成端到端的图像传递链路。
+**状态**：⏳ 待启动
+
+**目标**：验证 VLA 已经能从 env 拿到图（链路通了）——**不需要 action 工具传递 image_url，VLA 直接接触环境**。
 
 ### 背景
 
-Iteration 5 让 LLM 看到了图。LLM 决策后调用 action 工具时，需要把当前观察到的图片也带过去——VLA（特别是真实 VLA，如 SmallVLA / OpenVLA）必须看图才能输出合理动作。
+之前 Iteration 6 的设计是"让 LLM 把看到的图 URL 传给 VLA"。反思后这个设计**反模式**：
 
-但 Iteration 7 的 LLMVLA 不看图（它用语义化 ee_pos + object_info），所以 image_url 是可选参数，向后兼容。
+- VLA 是控制系统，应该自主观察环境（闭环反馈），不应该被 LLM 喂一张"过时"的图
+- 当前 `Executor.run_action` 已经在循环内每步从 `env.get_obs()["rgb"]` 拿图，通过 `build_vla_input` 喂给 VLA——**链路本就通的**
+- 真正的需求不是"让 VLA 拿图"（已经能），而是"确认这条链路确实在工作"
+
+### 职责分层重申
+
+```
+LLM 大脑：observe → 规划 → 下发子指令（语义层面）
+VLA 脊髓：接收指令 → 自主观察 env → 执行动作（控制层面）
+```
+
+VLA 不应该被 LLM 喂图，LLM 也不应该传递图给 VLA。
 
 ### 任务
 
-1. **action 工具改造**
+1. **加链路验证 print**
 
-   - `ActionTool` 注入 `ImageStore` 实例
-   - `ActionInput` 新增可选字段 `image_url: str | None`
-   - `action._run()` 把 `image_url` 透传给 `executor.run_action(image_url=...)`
-2. **executor 链路改造**
+   - 在 `Executor.run_action` 循环内第一步 `vla.predict(...)` 之后加一个 print（或 logger.info），打印：
+     - `image.shape` 和 `image.dtype`
+     - `image` 是否与当前 `obs_before["rgb"]` 数值一致（`np.array_equal`）
+   - 验证目标：**VLA 收到的 image 不是 None，且数值与 env.get_obs() 返回的 rgb 数组一致**
+   - print 是临时的——本迭代结束后可以保留作为长期链路健康检查，或后续迁移到 ExperimentRecorder 的 log 事件
 
-   - `Executor.run_action()` 新增可选参数 `image_url: str | None = None`
-   - 若提供 `image_url`：通过 `image_store.load(url)` 拿 ndarray，传给 VLA
-   - 若未提供：走原逻辑（`env.get_obs()` 拿当前图片，或 None）
-   - `build_vla_input()` 支持 `image` 字段（从 url 或 env 来都行）
-3. **BaseVLA 接口验证**
+2. **跑一次完整 pipeline 验证**
 
-   - `BaseVLA.predict(image, instruction) -> Action7D` 接口不变
-   - LLMVLA（Iteration 7）忽略 image 参数
-   - SmallVLA / OpenVLA（Iteration 11 / 12）必须使用 image
-   - 图片来源由 executor 决定，VLA 只接收 ndarray
-4. **pipeline 集成**
+   - 用 MockVLA backend 跑一次完整任务（任意简单目标）
+   - 观察 print 输出，确认 VLA 收到的 image 是有效 ndarray 且与 env rgb 一致
 
-   - `pipeline/runner.py` 创建 `ImageStore` 实例，注入 observe 和 action 工具
-   - 默认 `MemoryBackend`（一次实验内有效），由 config 切换 `FileBackend`
-5. **端到端冒烟**
+3. **文档说明**
 
-   - LLM 决策时主动传 image_url，验证 VLA 收到 ndarray
-   - 验证 image_url 缺失时仍走原逻辑（向后兼容）
+   - 在 `executor/__init__.py` 的 `run_action` docstring 里加一段说明：
+     - "VLA 通过 `env.get_obs()["rgb"]` 获取图像——VLA 直接接触环境，不依赖 LLM 传入图片"
+   - 在 `iteration-plan.md` 中记录反思："VLA 不应接收 LLM 的图 URL，由 VLA 自主观察 env"
 
 ### 交付物
 
-- `ActionTool` 接受 image_url 参数
-- `Executor.run_action(image_url=...)` 支持
-- 端到端：observe → LLM 看到图 → action 带 image_url → VLA 收到 ndarray
+- `Executor.run_action` 加链路验证 print（image 形状 + dtype + 与 env rgb 一致性断言）
+- 跑一次 pipeline 确认 print 输出正确
+- executor docstring 更新 + iteration-plan 反思记录
 
 ### 不在本迭代
 
-- ❌ 实现 LLMVLA（要等 Iteration 7）
-- ❌ 真正用图驱动机械臂（VLA 还是 Mock，但链路通了）
+- ❌ ActionTool 不加 image_url 字段（VLA 自己看 env）
+- ❌ Executor 不加 URL 协议识别逻辑（不需要）
+- ❌ ImageStore 不加 mm_file_id → img_url 索引（不需要）
+- ❌ build_vla_input 不加 image 覆盖参数（不需要）
+- ❌ 任何"LLM 把图传给 VLA"的链路设计
+
+### 后续迭代如何用
+
+- **Iteration 7（LLMVLA）**：实现 LLMVLA 时确认它从 env.get_obs 拿语义信息（ee_pos / object_info），不看 image
+- **Iteration 11/12（SmallVLA / OpenVLA）**：接真实 VLA 时，链路已经验证通，executor 喂 env rgb 即可
+- **链路 print**：可作为长期健康检查保留，或迁到 ExperimentRecorder 的 log 事件
 
 ---
 

@@ -64,6 +64,8 @@ class PyBulletPandaEnv(BaseEnv):
         self._mode = env_config.mode
         # use_gui 字段保留向后兼容：默认从 mode 推导
         self.use_gui = env_config.use_gui
+        # iter6-log-throttle：render() 日志节流计数器，仅首次 + 每 10 次打摘要
+        self._render_call_count: int = 0
         # 若显式传 use_gui=True 但 mode 不是 gui，发出 deprecation 警告
         if env_config.use_gui and env_config.mode != "gui":
             warnings.warn(
@@ -291,17 +293,32 @@ class PyBulletPandaEnv(BaseEnv):
         iter2-renderer-env-mode：渲染器由 self._renderer 决定（auto/cpu/gpu），
         日志中动态标注实际使用的渲染器（CPU/TINY_RENDERER 或 GPU/OPENGL）。
 
+        iter6-log-throttle：日志节流——仅首次完整打"开始/完成"+渲染器，
+        后续每 10 次打一条简短摘要，避免 executor 循环内刷屏。
+
         Returns:
             shape=(H, W, 3), dtype=uint8，范围 [0, 255]。
         """
+        self._render_call_count += 1
+        is_logged = (self._render_call_count == 1) or (self._render_call_count % 10 == 0)
+
         renderer_label = (
             "CPU/TINY_RENDERER"
             if self._renderer == p.ER_TINY_RENDERER
             else "GPU/OPENGL"
         )
-        logger.info(
-            f"render() 开始 — 渲染器={self._renderer} ({renderer_label})"
-        )
+
+        if is_logged:
+            if self._render_call_count == 1:
+                logger.info(
+                    f"render() 开始 — 渲染器={self._renderer} ({renderer_label})"
+                )
+            else:
+                logger.info(
+                    f"render() 第 {self._render_call_count} 次调用 — "
+                    f"渲染器={renderer_label}"
+                )
+
         self._ensure_connected()
         width, height = self.camera_resolution
 
@@ -335,7 +352,9 @@ class PyBulletPandaEnv(BaseEnv):
         rgb_array = np.array(px, dtype=np.uint8)
         rgb_array = rgb_array.reshape((height, width, 4))[:, :, :3]
 
-        logger.info("render() 完成")
+        if is_logged:
+            logger.info("render() 完成")
+
         return rgb_array
 
     def get_obs(self, include_rgb: bool = True) -> dict:

@@ -8,6 +8,8 @@
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from env.base import BaseEnv
 from executor.build_input import build_vla_input
 from executor.check_done import check_done
@@ -64,6 +66,14 @@ class Executor:
     ) -> ExecResult:
         """循环调 VLA 驱动 env，直到完成或超时。
 
+        VLA 通过 env.get_obs()["rgb"] 获取图像——VLA 直接接触环境，
+        不依赖 LLM 传入图片 URL。VLA 是否使用 image 参数由各后端自行决定
+        （MockVLA 故意忽略，LLMVLA 用语义信息，SmallVLA/OpenVLA 必须使用）。
+
+        Iteration 6 扩展：循环第一步 vla.predict 调用之后打印 image 链路验证
+        信息（shape / dtype / 与 obs rgb 的一致性），用于确认 VLA 已能从 env
+        拿到图——链路通。
+
         Args:
             env: BaseEnv 实例（PyBulletPandaEnv / FakeEnv 等）。
             instruction: 自然语言指令字符串。
@@ -86,6 +96,30 @@ class Executor:
             obs_before = env.get_obs()
             vla_input = build_vla_input(obs_before, instruction)
             action = self.vla.predict(vla_input["image"], instruction)
+
+            # Iteration 6：链路验证 print（仅第一步）
+            if step == 0:
+                image = vla_input["image"]
+                rgb = obs_before.get("rgb")
+                if image is not None:
+                    print(
+                        f"[executor] VLA.predict 收到 image: "
+                        f"shape={image.shape}, dtype={image.dtype}"
+                    )
+                    if rgb is not None:
+                        is_match = bool(np.array_equal(image, rgb))
+                        print(
+                            f"[executor] image 与 obs rgb array_equal: {is_match}"
+                        )
+                        if not is_match:
+                            self.logger.warning(
+                                "⚠️ VLA image 与 obs rgb 不一致"
+                            )
+                    else:
+                        print("[executor] ⚠️ obs_before['rgb'] 为 None")
+                else:
+                    print("[executor] ⚠️ vla_input['image'] 为 None")
+
             obs_after, _, _, _ = env.step(action)
             done, reason = check_done(
                 obs_before, obs_after, done_criteria, target_pos=target_pos
