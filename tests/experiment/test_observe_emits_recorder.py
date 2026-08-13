@@ -50,6 +50,18 @@ def _reset_global():
     set_recorder(None)
 
 
+def _text_block(result) -> str:
+    """从 _run() 返回的 list[dict] 中提取首条 text 块的 'text' 字段。
+
+    Iteration 5 约定：_run() 返回 list[dict]，list[0] 永远是 text 块。
+    本文件不注入 image_store，所以 content 长度恰好为 1，含 1 个 text 块。
+    """
+    assert isinstance(result, list), f"期望 list[dict]，得到 {type(result).__name__}"
+    assert len(result) >= 1, f"期望至少 1 个 block，得到空 list"
+    assert result[0]["type"] == "text", f"期望 text 块，得到 {result[0]!r}"
+    return result[0]["text"]
+
+
 # ============================================================================
 # 真实 ExperimentRecorder + FakeEnv 集成
 # ============================================================================
@@ -66,8 +78,8 @@ def test_observe_writes_png_and_log(tmp_path: Path):
     result = tool._run()
 
     # 返回文本仍正确（不因埋点改动）
-    assert "末端执行器位置" in result
-    assert "red_block" in result
+    assert "末端执行器位置" in _text_block(result)
+    assert "red_block" in _text_block(result)
 
     # PNG 应写入
     assert (recorder.observer_dir / "000.png").exists()
@@ -132,8 +144,8 @@ def test_observe_with_safe_recorder_returns_text_without_side_effects(tmp_path: 
     result = tool._run()
 
     # 返回文本正常
-    assert "末端执行器位置" in result
-    assert "red_block" in result
+    assert "末端执行器位置" in _text_block(result)
+    assert "red_block" in _text_block(result)
 
     # _call_count 仍递增（不依赖 recorder 是否启用）
     assert tool._call_count == 1
@@ -152,7 +164,7 @@ def test_observe_with_enabled_false_returns_text(tmp_path: Path):
     result = tool._run()
 
     # 返回文本正常
-    assert "末端执行器位置" in result
+    assert "末端执行器位置" in _text_block(result)
     # 不应创建文件
     assert list(tmp_path.iterdir()) == []
 
@@ -202,9 +214,9 @@ def test_observe_target_filter_still_works(tmp_path: Path):
     tool = ObserveTool(env=FakeEnv())
     result = tool._run(target="red_block")
 
-    assert "red_block" in result
+    assert "red_block" in _text_block(result)
     # target 过滤时仅返回 red_block
-    assert "blue_block" not in result
+    assert "blue_block" not in _text_block(result)
 
     recorder.finish(success=True, summary="x")
 
@@ -232,8 +244,8 @@ def test_observe_recorder_exception_does_not_break_business(tmp_path: Path, caps
     result = tool._run()
 
     # 返回文本正常
-    assert "末端执行器位置" in result
-    assert "red_block" in result
+    assert "末端执行器位置" in _text_block(result)
+    assert "red_block" in _text_block(result)
 
     captured = capsys.readouterr()
     # stderr 应含 warning（埋点异常被发现）

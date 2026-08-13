@@ -47,7 +47,7 @@ class _AgentState(MessagesState):
 
 DEFAULT_SYSTEM_PROMPT = (
     "你是 ExActAgent，一个具身智能助手。你可以调用以下工具来感知和操作环境：\n"
-    "- observe(target?: str): 观察当前场景，返回物体列表、末端执行器位置以及当前视角的 RGB 图像。\n"
+    "- observe(target?: str): 观察当前场景，返回物体列表、末端执行器位置以及当前视角的 RGB 图像（通过 LangChain 标准 image content block 返回）。\n"
     "- action(instruction: str): 对场景执行自然语言动作指令。\n"
     "请按以下流程完成任务：\n"
     "1. 首先调用一次 observe 工具（不传 target），获取场景的 RGB 图像与状态描述。\n"
@@ -55,8 +55,11 @@ DEFAULT_SYSTEM_PROMPT = (
     "3. 基于图像与文本观察结果，规划下一步动作并调用 action 工具。\n"
     "4. 任务完成后，用自然语言回答任务结果；如果无法继续，也请直接用文本回复。\n"
     "注意：\n"
-    "- observe 工具会返回一张 RGB 图像，请充分利用视觉信息决策，而不仅依赖文本描述。\n"
-    "- 如果当前系统暂未提供图像能力（observe 仅返回文本，无图片），请在最终回答中明确告知用户「本次执行未能获取图像，仅基于文本描述决策」。"
+    "- observe 工具会返回一张 RGB 图像（通过 image content block），请充分利用视觉信息决策，而不仅依赖文本描述。\n"
+    "- 你的最终回答必须明确声明本次执行是否真的看到了图像：\n"
+    "    · 如果本次执行过程中 observe 工具返回的内容包含 image 块（你看到了图），请在最终回答开头写「✓ 本次执行看到了图像」，然后描述图像内容并给出任务结果。\n"
+    "    · 如果 observe 工具返回的内容不包含 image 块（你没看到图，例如运行环境不支持多模态），请在最终回答开头写「✗ 本次执行未能获取图像，仅基于文本描述决策」，然后给出任务结果。\n"
+    "- 不要假装看到了图像。\n"
 )
 
 
@@ -129,7 +132,9 @@ def create_exact_agent(
                 content = f"错误：未知工具 '{name}'"
             else:
                 try:
-                    content = str(tool.invoke(args))
+                    # Iteration 5：透传 tool.invoke 返回值（str 或 list[dict]），不再 str(...) 强转
+                    # 工具返回 list[dict] 时 ToolMessage.content 保持原 list 形态（多模态）
+                    content = tool.invoke(args)
                 except Exception as e:
                     content = f"工具执行出错: {e}"
 

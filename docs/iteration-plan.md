@@ -16,7 +16,7 @@
 | 2     | 渲染与环境模式配置化                | 解决 M4 Mac 段错误，渲染器(GPU/CPU)与环境模式均可配置             | Mock               | M4 Air      | ✅ 已完成     |
 | 3     | 实验数据持久化（埋点解耦）          | 通过埋点机制收集实验数据，与业务管线解耦                          | Mock               | M4 Air      | ✅ 已完成     |
 | 4     | 图片存储器基础                      | 图片存取与 URL 协议，仅图片存储与引用                             | Mock               | M4 Air      | ⏳ 待启动     |
-| 5     | LLM 多模态视觉接入                  | LLM 通过 URL 看到图片（多模态输入），observe 工具返回图片 URL      | Mock               | M4 Air      | ⏳ 待启动     |
+| 5     | LLM 多模态视觉接入                  | LLM 通过 URL 看到图片（多模态输入），observe 工具返回图片 URL      | Mock               | M4 Air      | ✅ 已完成     |
 | 6     | VLA 图像输入链路                    | 图片 URL 传递给 VLA，executor/run_action 支持 image_url         | Mock               | M4 Air      | ⏳ 待启动     |
 | 7     | LLM-VLA 适配器                      | 用 MiniMax-M3 本身作为伪 VLA，机械臂真正响应指令                 | **LLMVLA**         | M4 Air      | ⏳ 待启动     |
 | 8     | 探索机制 v1 - 基础探索              | 先探索再执行的双阶段流程跑通                                     | LLMVLA             | M4 Air      | ⏳ 待启动     |
@@ -406,6 +406,8 @@ Iteration 2 解决了渲染段错误，observe 工具能拿到 RGB 图像。但�
 ---
 
 ## Iteration 5: LLM 多模态视觉接入
+
+**状态**：✅ 已完成（2026-08-13）
 
 **目标**：让 LLM 能通过 URL 看到 observe 工具返回的图片，实现原生多模态感知。**不动 VLA 链路。**
 

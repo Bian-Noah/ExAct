@@ -52,11 +52,23 @@ def test_observe_with_target_still_calls_rgb_true():
 # 返回字符串格式
 # ============================================================
 
+def _text_block(result) -> str:
+    """从 _run() 返回的 list[dict] 中提取首条 text 块的 'text' 字段。
+
+    Iteration 5 约定：_run() 返回 list[dict]，list[0] 永远是 text 块。
+    本文件不注入 image_store，所以 content 长度恰好为 1，含 1 个 text 块。
+    """
+    assert isinstance(result, list), f"期望 list[dict]，得到 {type(result).__name__}"
+    assert len(result) >= 1, f"期望至少 1 个 block，得到空 list"
+    assert result[0]["type"] == "text", f"期望 text 块，得到 {result[0]!r}"
+    return result[0]["text"]
+
+
 def test_observe_return_text_contains_ee_pos():
     """返回文本包含末端执行器位置。"""
     env = _make_env_mock()
     tool = ObserveTool(env=env)
-    text = tool._run()
+    text = _text_block(tool._run())
     assert "末端执行器位置" in text
     assert "0.500" in text or "0.50" in text
 
@@ -65,7 +77,7 @@ def test_observe_return_text_contains_object_list():
     """返回文本包含物体列表。"""
     env = _make_env_mock()
     tool = ObserveTool(env=env)
-    text = tool._run()
+    text = _text_block(tool._run())
     assert "场景物体列表" in text
     assert "cube" in text
 
@@ -83,6 +95,6 @@ def test_observe_target_filter_works():
         "rgb": None,
     }
     tool = ObserveTool(env=env)
-    text = tool._run(target="red")
+    text = _text_block(tool._run(target="red"))
     assert "red_cube" in text
     assert "blue_cube" not in text

@@ -27,6 +27,7 @@ from experiment.recorder import (
     set_recorder,
 )
 from tools import ActionTool, ObserveTool
+from utils.image_store import create_image_store
 from utils.logging import setup_logging
 
 logger = setup_logging("pipeline")
@@ -132,8 +133,14 @@ def run_pipeline(
         # 6. 组装 llm
         llm = create_llm(config.llm)
 
-        # 7. 组装 tools
-        tools = [ObserveTool(env=env), ActionTool(env=env, executor=executor)]
+        # 7. 构造 ImageStore（迭代 5：observe 工具需要它来回传 image content block）
+        image_store = create_image_store(config.image_store)
+
+        # 8. 组装 tools（ObserveTool 注入 image_store；ActionTool 契约不变）
+        tools = [
+            ObserveTool(env=env, image_store=image_store),
+            ActionTool(env=env, executor=executor),
+        ]
 
         # 8. 组装 agent（max_react_rounds / max_tool_calls 从 AgentConfig 读取）
         agent = create_exact_agent(

@@ -9,6 +9,7 @@ from src.config import (
     EnvConfig,
     ExperimentConfig,
     ExploreConfig,
+    ImageStoreConfig,
     LLMConfig,
     RobotConfig,
     TaskConfig,
@@ -24,6 +25,7 @@ def test_config_all_exports_present():
         "EnvConfig",
         "ExperimentConfig",
         "ExploreConfig",
+        "ImageStoreConfig",
         "LLMConfig",
         "RobotConfig",
         "TaskConfig",
@@ -50,6 +52,9 @@ def test_imported_dataclasses_are_correct_types():
     assert ExperimentConfig().enabled is True
     assert ExperimentConfig().root == "data/experiment"
     assert ExperimentConfig().log_to_stdout is True
+    # Iteration 4：ImageStoreConfig 默认 memory backend
+    assert ImageStoreConfig().backend == "memory"
+    assert ImageStoreConfig().file_dir == "data/images"
     # AppConfig 需要显式传入子配置实例
     app = AppConfig(
         env=EnvConfig(),
@@ -60,11 +65,13 @@ def test_imported_dataclasses_are_correct_types():
         task=TaskConfig(),
         agent=AgentConfig(),
         experiment=ExperimentConfig(),
+        image_store=ImageStoreConfig(),
     )
     assert isinstance(app.robot, RobotConfig)
     assert isinstance(app.task, TaskConfig)
     assert isinstance(app.agent, AgentConfig)
     assert isinstance(app.experiment, ExperimentConfig)
+    assert isinstance(app.image_store, ImageStoreConfig)
 
 
 def test_load_config_via_public_import():
@@ -80,3 +87,4 @@ def test_load_config_via_public_import():
     assert isinstance(cfg.task, TaskConfig)
     assert isinstance(cfg.agent, AgentConfig)
     assert isinstance(cfg.experiment, ExperimentConfig)
+    assert isinstance(cfg.image_store, ImageStoreConfig)

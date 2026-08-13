@@ -24,6 +24,7 @@ from config import (
     EnvConfig,
     ExperimentConfig,
     ExploreConfig,
+    ImageStoreConfig,
     LLMConfig,
     RobotConfig,
     TaskConfig,
@@ -103,6 +104,7 @@ def _make_config(enabled: bool, root: str) -> AppConfig:
         experiment=ExperimentConfig(
             enabled=enabled, root=root, log_to_stdout=False
         ),
+        image_store=ImageStoreConfig(),
     )
 
 
@@ -295,11 +297,17 @@ def test_e2e_observe_calls_produce_pngs(tmp_path: Path, monkeypatch):
     # 这里简化：让 agent 直接调 observe 工具一次
     real_observe_tool_factory = None
     from tools import ObserveTool
+    from utils.image_store import ImageStore
 
     def fake_create_agent(llm, tools, **kwargs):
         # 模拟一次 observe 调用
         for tool in tools:
             if isinstance(tool, ObserveTool):
+                # mock image_store.upload_to_minimax 避免真打 MiniMax
+                if tool.image_store is not None and isinstance(tool.image_store, ImageStore):
+                    tool.image_store.upload_to_minimax = MagicMock(
+                        return_value="mm_file://fake_id"
+                    )
                 # 这里直接触发一次 observe（mock LLM 已经决策要 observe）
                 # 注意：实际不会执行 LLM 决策流程，仅验证 observe 埋点
                 tool._run()

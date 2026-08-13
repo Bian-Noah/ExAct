@@ -5,6 +5,11 @@
 Iteration 3：在 _run() 拿到 obs['rgb'] ndarray 后埋点
 recorder.emit('observe_image', ...) + emit('log', ...)，
 用于 ExperimentRecorder 落盘 observer/{idx:03d}.png 与 experiment.log。
+
+Iteration 5：_run() 返回结构化 list[dict]（LangChain 标准 content blocks），
+    - 始终含 1 个 text 块
+    - 若 image_store 已注入且 obs['rgb'] 可用，追加 1 个 image 块
+    - image 块字段：{"type": "image", "url": "img://observations/..."}
 """
 
 from __future__ import annotations
@@ -36,6 +41,65 @@ def _get_pos(obj: dict) -> tuple:
     return (None, None, None)
 
 
+def _format_text_lines(obs: dict, target: Optional[str]) -> list[str]:
+    """从 obs 构造格式化文本行（ee_pos + 场景物体列表）。
+
+    复用位：函数返回值作为 LangChain text content block 的 "text" 字段。
+
+    Args:
+        obs: env.get_obs() 返回的 dict（含 ee_pos / object_info）。
+        target: 可选物体名过滤，大小写不敏感。
+
+    Returns:
+        多行字符串列表。
+    """
+    lines: list[str] = []
+
+    # 末端执行器位置
+    ee_pos = obs.get("ee_pos")
+    if (
+        ee_pos is not None
+        and isinstance(ee_pos, (list, tuple))
+        and len(ee_pos) >= 3
+    ):
+        lines.append(
+            f"末端执行器位置: ({ee_pos[0]:.3f}, {ee_pos[1]:.3f}, {ee_pos[2]:.3f})"
+        )
+    else:
+        lines.append("末端执行器位置: unknown")
+
+    # 物体列表
+    lines.append("场景物体列表:")
+    object_info = obs.get("object_info", []) or []
+
+    # 过滤物体
+    if target is None:
+        filtered = object_info
+    else:
+        target_lower = target.lower()
+        # 先精确匹配（大小写不敏感）
+        filtered = [
+            obj for obj in object_info
+            if obj.get("name", "").lower() == target_lower
+        ]
+        # 没有再做包含匹配
+        if not filtered:
+            filtered = [
+                obj for obj in object_info
+                if target_lower in obj.get("name", "").lower()
+            ]
+
+    for obj in filtered:
+        name = obj.get("name", "unknown")
+        p0, p1, p2 = _get_pos(obj)
+        lines.append(f"  - {name}: pos=({p0}, {p1}, {p2})")
+
+    if target and not filtered:
+        lines.append(f"  (未找到目标物体 '{target}')")
+
+    return lines
+
+
 class ObserveTool(BaseTool):
     """观察当前场景，返回物体列表和末端执行器位置。
 
@@ -43,6 +107,11 @@ class ObserveTool(BaseTool):
 
     Iteration 3 扩展：每次 _run() 拿到 obs['rgb'] ndarray 后，调用
     recorder.emit('observe_image', ...) 与 emit('log', ...) 埋点。
+
+    Iteration 5 扩展：_run() 返回结构化 list[dict]（LangChain 标准 content blocks）：
+        - 始终含 1 个 text 块（原有格式化文本）
+        - 若 image_store 已注入且 obs['rgb'] 可用，追加 1 个 image 块
+        - image 块字段：{"type": "image", "url": "img://observations/..."}
     """
 
     name: str = "observe"
@@ -52,6 +121,7 @@ class ObserveTool(BaseTool):
     )
     args_schema: Type[BaseModel] = ObserveInput
     env: Any = None
+    image_store: Any = None
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -59,14 +129,20 @@ class ObserveTool(BaseTool):
         self._call_count: int = 0
         self._recorder = get_recorder()
 
-    def _run(self, target: Optional[str] = None) -> str:
-        """执行观察。
+    def _run(self, target: Optional[str] = None) -> list[dict]:
+        """执行观察，返回结构化 list[dict]。
+
+        返回形态（LangChain 标准 content blocks）:
+            [
+                {"type": "text", "text": "..."},
+                {"type": "image", "url": "img://observations/..."},  # 条件追加
+            ]
 
         Args:
             target: 可选物体名过滤，大小写不敏感。None 时返回全部物体。
 
         Returns:
-            多行字符串：第一行末端执行器位置，其后物体列表。
+            list[dict]：至少 1 个 text 块；image 块仅在 image_store 与 rgb 都可用时出现。
         """
         _log = logging.getLogger("observe")
         _log.info(f"observe 调用开始 target={target}")
@@ -76,6 +152,7 @@ class ObserveTool(BaseTool):
 
         # Iteration 3：埋点保存 RGB 图像（异常隔离由 recorder 内部 try/except 处理）
         rgb = obs.get("rgb")
+        image_block: dict | None = None
         if rgb is not None:
             self._recorder.emit("observe_image", image=rgb, idx=self._call_count)
             self._recorder.emit(
@@ -84,48 +161,16 @@ class ObserveTool(BaseTool):
             )
             self._call_count += 1
 
-        lines: list[str] = []
+            # Iteration 5：若 image_store 已注入，保存到 ImageStore 并追加 image content block
+            if self.image_store is not None:
+                image_url = self.image_store.save(rgb, category="observations")
+                # Iteration 5 fix：把 img:// 翻译成 provider 可消费的 mm_file://{file_id}
+                image_url = self.image_store.upload_to_minimax(image_url)
+                image_block = {"type": "image", "url": image_url}
 
-        # 末端执行器位置
-        ee_pos = obs.get("ee_pos")
-        if (
-            ee_pos is not None
-            and isinstance(ee_pos, (list, tuple))
-            and len(ee_pos) >= 3
-        ):
-            lines.append(
-                f"末端执行器位置: ({ee_pos[0]:.3f}, {ee_pos[1]:.3f}, {ee_pos[2]:.3f})"
-            )
-        else:
-            lines.append("末端执行器位置: unknown")
+        text_lines = _format_text_lines(obs, target)
+        content: list[dict] = [{"type": "text", "text": "\n".join(text_lines)}]
+        if image_block is not None:
+            content.append(image_block)
 
-        # 物体列表
-        lines.append("场景物体列表:")
-        object_info = obs.get("object_info", []) or []
-
-        # 过滤物体
-        if target is None:
-            filtered = object_info
-        else:
-            target_lower = target.lower()
-            # 先精确匹配（大小写不敏感）
-            filtered = [
-                obj for obj in object_info
-                if obj.get("name", "").lower() == target_lower
-            ]
-            # 没有再做包含匹配
-            if not filtered:
-                filtered = [
-                    obj for obj in object_info
-                    if target_lower in obj.get("name", "").lower()
-                ]
-
-        for obj in filtered:
-            name = obj.get("name", "unknown")
-            p0, p1, p2 = _get_pos(obj)
-            lines.append(f"  - {name}: pos=({p0}, {p1}, {p2})")
-
-        if target and not filtered:
-            lines.append(f"  (未找到目标物体 '{target}')")
-
-        return "\n".join(lines)
+        return content

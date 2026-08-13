@@ -20,7 +20,10 @@ def test_observe_gets_rgb_end_to_end():
     try:
         env.reset(task_spec={"objects": []})
         tool = ObserveTool(env=env)
-        text = tool._run()
+        # Iteration 5：_run() 返回 list[dict]
+        result = tool._run()
+        assert isinstance(result, list)
+        text = result[0]["text"]
         # 文本格式
         assert "末端执行器位置" in text
         # 验证 env 拿到了 RGB

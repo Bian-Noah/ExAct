@@ -35,6 +35,9 @@ def test_observe_executes_with_rgb_in_obs():
         "rgb": np.zeros((480, 640, 3), dtype=np.uint8),
     }
     tool = ObserveTool(env=env)
-    text = tool._run()
+    result = tool._run()
+    # Iteration 5：_run() 返回 list[dict]
+    assert isinstance(result, list)
+    text = result[0]["text"]
     assert "末端执行器位置" in text
     assert "cube" in text

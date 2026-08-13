@@ -104,7 +104,8 @@ class ImageStore:
             cats = sorted({cat for (cat, _fn) in self._backend._memory.keys()})
             # Merge with spill categories if any
             try:
-                for sub in sorted(self._backend._spill_dir.iterdir()):
+                spill_root = self._backend._spill.root_dir
+                for sub in sorted(spill_root.iterdir()):
                     if sub.is_dir() and sub.name not in cats:
                         cats.append(sub.name)
             except (FileNotFoundError, OSError):
@@ -120,3 +121,67 @@ class ImageStore:
                 return []
 
         return []
+
+    # ---- minimax file upload (iteration 5 fix) ----
+
+    def upload_to_minimax(self, img_url: str) -> str:
+        """把 img:// URL 对应的图片上传到 MiniMax file API，返回 mm_file://{file_id}。
+
+        API key 从 configs/local.yaml（存在）或 configs/default.yaml（fallback）直接读取。
+        不通过 config dataclass 层层传，方法自给自足。
+
+        Args:
+            img_url: img:// URL（来自 image_store.save()）。
+
+        Returns:
+            mm_file://{file_id} URL（provider 可消费）。
+
+        Raises:
+            RuntimeError: 当 base_resp.status_code != 0 时。
+            requests.HTTPError: 当 HTTP 状态码非 2xx 时。
+        """
+        import io
+        from pathlib import Path
+        import yaml
+        import imageio.v3 as iio
+        import requests
+
+        from utils.image_store.url_scheme import parse_url
+
+        # 1. 读 api_key（先 local.yaml，没有再 fallback default.yaml）
+        # src/utils/image_store/store.py → parents[3] 是项目根（ExAct/）
+        config_root = Path(__file__).parents[3] / "configs"
+        local_yaml = config_root / "local.yaml"
+        default_yaml = config_root / "default.yaml"
+        yaml_path = local_yaml if local_yaml.exists() else default_yaml
+        with open(yaml_path) as f:
+            cfg = yaml.safe_load(f)
+        api_key = cfg["llm"]["api_key"]
+
+        # 2. 从 ImageStore 拿 ndarray
+        category, filename = parse_url(img_url)
+        image = self._backend.load(category, filename)
+
+        # 3. ndarray → PNG bytes
+        buf = io.BytesIO()
+        iio.imwrite(buf, image, format="PNG")
+        buf.seek(0)
+
+        # 4. POST 到 MiniMax /v1/files/upload
+        response = requests.post(
+            "https://api.minimaxi.com/v1/files/upload",
+            headers={"Authorization": f"Bearer {api_key}"},
+            files={"file": ("observation.png", buf, "image/png")},
+            data={"purpose": "video_generation_input"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        # 业务层校验：HTTP 200 但 status_code != 0 视为失败
+        base_resp = data.get("base_resp", {})
+        if base_resp.get("status_code", -1) != 0:
+            raise RuntimeError(
+                f"MiniMax upload failed: status_code={base_resp.get('status_code')}, "
+                f"status_msg={base_resp.get('status_msg')}"
+            )
+        return f"mm_file://{data['file']['file_id']}"

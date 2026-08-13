@@ -23,6 +23,7 @@ from config import (
     EnvConfig,
     ExperimentConfig,
     ExploreConfig,
+    ImageStoreConfig,
     LLMConfig,
     RobotConfig,
     TaskConfig,
@@ -62,6 +63,7 @@ def _make_config(
             root=experiment_root,
             log_to_stdout=False,
         ),
+        image_store=ImageStoreConfig(),
     )
 
 

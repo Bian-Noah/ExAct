@@ -21,6 +21,11 @@ requests>=2.31
 
 # --- 测试 ---
 pytest>=8.0
+pytest-cov>=7.0      # 覆盖率测量（Iteration 4 引入）
+
+# --- 图片存储（Iteration 4）---
+# image_store 模块使用 imageio 做 PNG 编解码
+imageio>=2.30
 
 # ========================================
 # 阶段二（RTX 4060, CUDA）—— 额外安装:

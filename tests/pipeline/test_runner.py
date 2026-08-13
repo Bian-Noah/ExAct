@@ -25,6 +25,7 @@ from config import (
     EnvConfig,
     ExperimentConfig,
     ExploreConfig,
+    ImageStoreConfig,
     LLMConfig,
     RobotConfig,
     TaskConfig,
@@ -51,6 +52,7 @@ def _make_default_config(
         task=TaskConfig(default_user_goal=user_goal, objects=task_objects),
         agent=AgentConfig(max_react_rounds=max_react_rounds, max_tool_calls=max_tool_calls),
         experiment=ExperimentConfig(),
+        image_store=ImageStoreConfig(),
     )
 
 
