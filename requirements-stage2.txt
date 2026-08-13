@@ -2,7 +2,14 @@
 # 先安装 PyTorch CUDA 版，再装本文件
 # pip install -r requirements-stage2.txt
 
+# --- OpenVLA 后端（仅推理）---
 torch>=2.2
 transformers>=4.40
 bitsandbytes>=0.43
 accelerate>=0.27
+timm==0.9.10        # OpenVLA 官方 README 锁定版本
+tokenizers==0.19.1  # OpenVLA 官方 README 锁定版本
+flash-attn==2.5.5   # 可选；缺包时 OpenVLA 后端自动回退 eager attention
+
+# --- LeRobot 后端（仅推理）---
+lerobot>=0.4
