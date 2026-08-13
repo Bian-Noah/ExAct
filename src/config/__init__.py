@@ -1,3 +1,4 @@
+from .image_store_config import ImageStoreConfig
 from .loader import (
     AgentConfig,
     AppConfig,
@@ -17,6 +18,7 @@ __all__ = [
     "EnvConfig",
     "ExperimentConfig",
     "ExploreConfig",
+    "ImageStoreConfig",
     "LLMConfig",
     "RobotConfig",
     "TaskConfig",

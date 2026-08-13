@@ -43,3 +43,8 @@ experiment:
   enabled: true                  # Iteration 3 启用：开启后每次跑 pipeline 自动落盘到 data/experiment/{timestamp}/
   root: "data/experiment"        # 实验产物根目录（相对项目根）
   log_to_stdout: true            # log 事件是否同时输出到终端
+
+image_store:
+  backend: "memory"            # "memory" | "file"
+  file_dir: "data/images"      # FileBackend root_dir / MemoryBackend spill dir（相对项目根）
+  max_memory_items: 10         # MemoryBackend 内存上限（条目数），超出后 spill 到 file_dir

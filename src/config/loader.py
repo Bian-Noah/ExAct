@@ -8,6 +8,8 @@ from typing import TypeVar, Type, Optional, get_type_hints, Literal
 
 import yaml
 
+from .image_store_config import ImageStoreConfig
+
 T = TypeVar("T")
 
 # EnvConfig 字段值合法集合（iter2-renderer-env-mode 引入）
@@ -123,6 +125,7 @@ class AppConfig:
     task: TaskConfig
     agent: AgentConfig
     experiment: ExperimentConfig
+    image_store: ImageStoreConfig
 
 
 def _check_type(name: str, value: object, expected: type) -> None:
@@ -308,6 +311,7 @@ def load_config(path: str) -> AppConfig:
     task_raw = raw.get("task", {}) or {}
     agent_raw = raw.get("agent", {}) or {}
     experiment_raw = raw.get("experiment", {}) or {}
+    image_store_raw = raw.get("image_store", {}) or {}
 
     for key, section in (
         ("env", env_raw),
@@ -318,6 +322,7 @@ def load_config(path: str) -> AppConfig:
         ("task", task_raw),
         ("agent", agent_raw),
         ("experiment", experiment_raw),
+        ("image_store", image_store_raw),
     ):
         if not isinstance(section, dict):
             raise ValueError(f"配置节 '{key}' 必须是 mapping，实际为 {type(section).__name__}")
@@ -331,4 +336,5 @@ def load_config(path: str) -> AppConfig:
         task=_from_dict(task_raw, TaskConfig),
         agent=_from_dict(agent_raw, AgentConfig),
         experiment=_from_dict(experiment_raw, ExperimentConfig),
+        image_store=_from_dict(image_store_raw, ImageStoreConfig),
     )
