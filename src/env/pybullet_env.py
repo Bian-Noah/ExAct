@@ -2,6 +2,11 @@
 
 封装 PyBullet 物理引擎，提供 Franka Panda 机械臂的仿真环境。
 运行方式：PYTHONPATH=src python src/app.py
+
+iter1-pipeline-refactor-config 后：
+- 构造签名改为 `PyBulletPandaEnv(env_config: EnvConfig, robot_config: RobotConfig)`
+- 内部 `ARM_JOINT_INDICES` / `EE_LINK_INDEX` / `FINGER_JOINT_INDICES` 改为从 `robot_config` 读取
+- 模块级常量保留作 `RobotConfig` 默认值的别名引用
 """
 
 import time
@@ -10,34 +15,45 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 
+from config.loader import EnvConfig, RobotConfig
 from env.base import BaseEnv, Action7D
 from utils.logging import setup_logging
 
 logger = setup_logging(__name__)
 
-# Panda 机械臂 7 个关节索引
-ARM_JOINT_INDICES = [0, 1, 2, 3, 4, 5, 6]
+# Panda 机械臂 7 个关节索引（模块级别名，引用 RobotConfig 默认值）
+ARM_JOINT_INDICES = tuple(RobotConfig().arm_joint_indices)
 # 末端执行器 link 索引（panda_hand）
-EE_LINK_INDEX = 11
+EE_LINK_INDEX = RobotConfig().ee_link_index
 # 夹爪关节索引
-FINGER_JOINT_INDICES = [9, 10]
+FINGER_JOINT_INDICES = tuple(RobotConfig().finger_joint_indices)
 
 
 class PyBulletPandaEnv(BaseEnv):
     """基于 PyBullet 的 Franka Panda 仿真环境。
 
     Args:
-        use_gui: True=弹出 GUI 窗口，False=DIRECT 无头模式。
-        camera_resolution: (width, height) 像素。
+        env_config: 环境配置（use_gui / camera_resolution）。
+        robot_config: 机械臂配置（URDF 路径 / 关节索引常量 / 底座位置）。
     """
 
     def __init__(
         self,
-        use_gui: bool = True,
-        camera_resolution: tuple[int, int] = (640, 480),
+        env_config: EnvConfig | None = None,
+        robot_config: RobotConfig | None = None,
     ):
-        self.use_gui = use_gui
-        self.camera_resolution = camera_resolution
+        # 兼容旧调用：env_config 为 None 时使用默认值
+        if env_config is None:
+            env_config = EnvConfig()
+        if robot_config is None:
+            robot_config = RobotConfig()
+
+        self.env_config = env_config
+        self.robot_config = robot_config
+        self.use_gui = env_config.use_gui
+        self.camera_resolution = env_config.camera_resolution
+
+        # 内部字段
         self._client_id = -1
         self._robot_id = None
         self._object_ids: list[int] = []
@@ -88,10 +104,10 @@ class PyBulletPandaEnv(BaseEnv):
             "plane.urdf", physicsClientId=self._client_id
         )
 
-        # 加载机械臂
+        # 加载机械臂（URDF 路径与底座位置从 robot_config 读取）
         self._robot_id = p.loadURDF(
-            "franka_panda/panda.urdf",
-            basePosition=[0, 0, 0],
+            self.robot_config.urdf_path,
+            basePosition=list(self.robot_config.base_position),
             useFixedBase=True,
             physicsClientId=self._client_id,
         )
@@ -133,10 +149,15 @@ class PyBulletPandaEnv(BaseEnv):
             (obs, reward, done, info) — 当前 reward=0.0，done=False，info={}。
         """
         self._ensure_connected()
+        # 关节索引常量从 robot_config 读取（兼容字段名）
+        arm_indices = self.robot_config.arm_joint_indices
+        ee_link_idx = self.robot_config.ee_link_index
+        finger_indices = self.robot_config.finger_joint_indices
+
         # 获取当前末端位置
         link_state = p.getLinkState(
             self._robot_id,
-            EE_LINK_INDEX,
+            ee_link_idx,
             physicsClientId=self._client_id,
         )
         current_ee = link_state[0]
@@ -151,7 +172,7 @@ class PyBulletPandaEnv(BaseEnv):
         # 逆运动学求解关节角度
         joint_angles = p.calculateInverseKinematics(
             self._robot_id,
-            EE_LINK_INDEX,
+            ee_link_idx,
             target_ee,
             physicsClientId=self._client_id,
         )
@@ -159,9 +180,9 @@ class PyBulletPandaEnv(BaseEnv):
         # 控制机械臂关节
         p.setJointMotorControlArray(
             self._robot_id,
-            ARM_JOINT_INDICES,
+            arm_indices,
             p.POSITION_CONTROL,
-            targetPositions=joint_angles[:7],
+            targetPositions=joint_angles[:len(arm_indices)],
             physicsClientId=self._client_id,
         )
 
@@ -169,7 +190,7 @@ class PyBulletPandaEnv(BaseEnv):
         gripper_pos = 0.04 * action.gripper
         p.setJointMotorControlArray(
             self._robot_id,
-            FINGER_JOINT_INDICES,
+            finger_indices,
             p.POSITION_CONTROL,
             targetPositions=[gripper_pos, gripper_pos],
             physicsClientId=self._client_id,
@@ -185,7 +206,7 @@ class PyBulletPandaEnv(BaseEnv):
         """返回当前相机 RGB 图像。
 
         Returns:
-            shape=(H, W, 3), dtype=uint8, 范围 [0, 255]。
+            shape=(H, W, 3), dtype=uint8，范围 [0, 255]。
         """
         logger.info("render() 开始 — 调用 p.getCameraImage (GPU)")
         self._ensure_connected()
@@ -234,10 +255,11 @@ class PyBulletPandaEnv(BaseEnv):
             obs dict，包含 rgb/object_info/ee_pos/state_desc。
         """
         self._ensure_connected()
+        ee_link_idx = self.robot_config.ee_link_index
         # 末端位置
         link_state = p.getLinkState(
             self._robot_id,
-            EE_LINK_INDEX,
+            ee_link_idx,
             physicsClientId=self._client_id,
         )
         ee_pos = tuple(link_state[0])

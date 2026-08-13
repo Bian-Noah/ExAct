@@ -1,4 +1,4 @@
-"""lc_agent 单元测试。
+"""agent 单元测试（iter1-pipeline-refactor-config 后从 lc_agent 重命名）。
 
 Mock LLM 和工具，验证 create_exact_agent + run_agent 的 ReAct 循环。
 新接口基于 StateGraph + 自写 tool_node（主线程同步）。
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from agents.lc_agent import (
+from agents.agent import (
     create_exact_agent,
     run_agent,
     _parse_agent_result,

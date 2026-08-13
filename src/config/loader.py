@@ -59,11 +59,47 @@ class ExploreConfig:
 
 
 @dataclass
+class RobotConfig:
+    """机械臂配置（URDF 路径 + 关节索引常量）。"""
+    urdf_path: str = "franka_panda/panda.urdf"
+    base_position: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    arm_joint_indices: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6)
+    ee_link_index: int = 11
+    finger_joint_indices: tuple[int, ...] = (9, 10)
+
+
+@dataclass
+class TaskConfig:
+    """任务定义（默认 user_goal + 物体列表）。"""
+    default_user_goal: str = "把机械臂移到红色方块上方"
+    objects: tuple[dict, ...] = (
+        {"type": "cube", "pos": [0.5, 0, 0.1], "color": "red"},
+    )
+
+
+@dataclass
+class AgentConfig:
+    """Agent 行为配置（ReAct 轮数 + 工具调用上限）。"""
+    max_react_rounds: int = 5
+    max_tool_calls: int = 3
+
+
+@dataclass
+class ExperimentConfig:
+    """实验数据持久化配置（Iteration 3 启用，本迭代占位）。"""
+    enabled: bool = False
+
+
+@dataclass
 class AppConfig:
     env: EnvConfig
     vla: VLAConfig
     llm: LLMConfig
     explore: ExploreConfig
+    robot: RobotConfig
+    task: TaskConfig
+    agent: AgentConfig
+    experiment: ExperimentConfig
 
 
 def _check_type(name: str, value: object, expected: type) -> None:
@@ -146,6 +182,10 @@ def _from_dict(data: dict, cls: Type[T]) -> T:
         present = fname in data
 
         if not present:
+            # 嵌套 dataclass 字段：未提供时用空 dict，递归时由子 dataclass 默认值兜底
+            if is_dataclass(ftype):
+                kwargs[fname] = _from_dict({}, ftype)
+                continue
             if has_default:
                 kwargs[fname] = default_value
                 continue
@@ -164,6 +204,28 @@ def _from_dict(data: dict, cls: Type[T]) -> T:
                 )
             kwargs[fname] = (raw_value[0], raw_value[1])
             continue
+        # 通用 tuple 字段：list → tuple 转换 + 元素类型校验
+        # 适用于 RobotConfig.arm_joint_indices / base_position 等
+        origin = getattr(ftype, "__origin__", None)
+        if origin is tuple and isinstance(raw_value, list):
+            type_args = getattr(ftype, "__args__", ())
+            if len(type_args) == 2 and type_args[1] is Ellipsis:
+                # tuple[X, ...] 变长
+                elem_t = type_args[0]
+                for i, v in enumerate(raw_value):
+                    _check_type(f"{cls.__name__}.{fname}[{i}]", v, elem_t)
+                kwargs[fname] = tuple(raw_value)
+                continue
+            if len(type_args) > 0:
+                # 固定长度 tuple[X, Y, ...]
+                if len(raw_value) != len(type_args):
+                    raise ValueError(
+                        f"字段 '{cls.__name__}.{fname}' 长度错误：期望 {len(type_args)}，得到 {len(raw_value)}"
+                    )
+                for i, (v, t) in enumerate(zip(raw_value, type_args)):
+                    _check_type(f"{cls.__name__}.{fname}[{i}]", v, t)
+                kwargs[fname] = tuple(raw_value)
+                continue
         # 子 dataclass 嵌套（目前没用，但保留可扩展性）
         if is_dataclass(ftype) and isinstance(raw_value, dict):
             kwargs[fname] = _from_dict(raw_value, ftype)
@@ -204,8 +266,21 @@ def load_config(path: str) -> AppConfig:
     vla_raw = raw.get("vla", {}) or {}
     llm_raw = raw.get("llm", {}) or {}
     explore_raw = raw.get("explore", {}) or {}
+    robot_raw = raw.get("robot", {}) or {}
+    task_raw = raw.get("task", {}) or {}
+    agent_raw = raw.get("agent", {}) or {}
+    experiment_raw = raw.get("experiment", {}) or {}
 
-    for key, section in (("env", env_raw), ("vla", vla_raw), ("llm", llm_raw), ("explore", explore_raw)):
+    for key, section in (
+        ("env", env_raw),
+        ("vla", vla_raw),
+        ("llm", llm_raw),
+        ("explore", explore_raw),
+        ("robot", robot_raw),
+        ("task", task_raw),
+        ("agent", agent_raw),
+        ("experiment", experiment_raw),
+    ):
         if not isinstance(section, dict):
             raise ValueError(f"配置节 '{key}' 必须是 mapping，实际为 {type(section).__name__}")
 
@@ -214,4 +289,8 @@ def load_config(path: str) -> AppConfig:
         vla=_from_dict(vla_raw, VLAConfig),
         llm=_from_dict(llm_raw, LLMConfig),
         explore=_from_dict(explore_raw, ExploreConfig),
+        robot=_from_dict(robot_raw, RobotConfig),
+        task=_from_dict(task_raw, TaskConfig),
+        agent=_from_dict(agent_raw, AgentConfig),
+        experiment=_from_dict(experiment_raw, ExperimentConfig),
     )

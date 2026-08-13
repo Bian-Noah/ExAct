@@ -8,10 +8,14 @@ import pytest
 import yaml
 
 from src.config.loader import (
+    AgentConfig,
     AppConfig,
     EnvConfig,
+    ExperimentConfig,
     ExploreConfig,
     LLMConfig,
+    RobotConfig,
+    TaskConfig,
     VLAConfig,
     _from_dict,
     load_config,
@@ -43,6 +47,36 @@ def test_llm_config_defaults():
 
 def test_explore_config_defaults():
     cfg = ExploreConfig()
+    assert cfg.enabled is False
+
+
+# ---------- 1b. 新增 dataclass 默认值 ----------
+
+def test_robot_config_defaults():
+    cfg = RobotConfig()
+    assert cfg.urdf_path == "franka_panda/panda.urdf"
+    assert cfg.base_position == (0.0, 0.0, 0.0)
+    assert cfg.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+    assert cfg.ee_link_index == 11
+    assert cfg.finger_joint_indices == (9, 10)
+
+
+def test_task_config_defaults():
+    cfg = TaskConfig()
+    assert cfg.default_user_goal == "把机械臂移到红色方块上方"
+    assert len(cfg.objects) == 1
+    assert cfg.objects[0]["type"] == "cube"
+    assert cfg.objects[0]["color"] == "red"
+
+
+def test_agent_config_defaults():
+    cfg = AgentConfig()
+    assert cfg.max_react_rounds == 5
+    assert cfg.max_tool_calls == 3
+
+
+def test_experiment_config_defaults():
+    cfg = ExperimentConfig()
     assert cfg.enabled is False
 
 
@@ -238,6 +272,131 @@ def test_load_config_empty_yaml_uses_defaults():
         assert cfg.llm.api_key == ""
         assert cfg.llm.model == "MiniMax-M3"
         assert cfg.explore.enabled is False
+    finally:
+        os.unlink(path)
+
+
+# ---------- 5. 新增节的 YAML 解析 ----------
+
+def test_robot_config_yaml_parse():
+    cfg = _from_dict(
+        {
+            "urdf_path": "custom/robot.urdf",
+            "arm_joint_indices": [1, 2, 3],
+        },
+        RobotConfig,
+    )
+    assert cfg.urdf_path == "custom/robot.urdf"
+    assert cfg.arm_joint_indices == (1, 2, 3)
+    assert isinstance(cfg.arm_joint_indices, tuple)
+    # 未指定字段使用默认值
+    assert cfg.ee_link_index == 11
+
+
+def test_robot_config_missing_uses_defaults():
+    cfg = _from_dict({}, RobotConfig)
+    assert cfg.urdf_path == "franka_panda/panda.urdf"
+    assert cfg.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+
+
+def test_task_config_yaml_parse():
+    cfg = _from_dict(
+        {
+            "default_user_goal": "拾起红方块",
+            "objects": [{"type": "cube", "pos": [0.6, 0.2, 0.1], "color": "red"}],
+        },
+        TaskConfig,
+    )
+    assert cfg.default_user_goal == "拾起红方块"
+    assert len(cfg.objects) == 1
+    assert cfg.objects[0]["type"] == "cube"
+
+
+def test_agent_config_override():
+    cfg = _from_dict({"max_react_rounds": 10, "max_tool_calls": 5}, AgentConfig)
+    assert cfg.max_react_rounds == 10
+    assert cfg.max_tool_calls == 5
+
+
+def test_experiment_config_in_appconfig():
+    raw = {
+        "env": {"use_gui": False},
+        "vla": {"backend": "mock"},
+        "llm": {"api_key": "k"},
+        "explore": {"enabled": False},
+    }
+    app = _from_dict(raw, AppConfig)
+    assert isinstance(app.experiment, ExperimentConfig)
+    assert app.experiment.enabled is False
+
+
+def test_appconfig_full_yaml_load():
+    path = _write_yaml(
+        """\
+env:
+  use_gui: false
+  camera_resolution: [320, 240]
+vla:
+  backend: mock
+  max_steps: 50
+llm:
+  api_key: "sk-test"
+  model: "MiniMax-M3"
+  base_url: "https://api.minimax.chat/v1"
+  max_tokens: 2048
+explore:
+  enabled: false
+robot:
+  urdf_path: "custom/panda.urdf"
+  arm_joint_indices: [0, 1, 2, 3, 4, 5, 6]
+  ee_link_index: 11
+task:
+  default_user_goal: "把机械臂移到红色方块上方"
+agent:
+  max_react_rounds: 5
+  max_tool_calls: 3
+experiment:
+  enabled: false
+"""
+    )
+    try:
+        cfg = load_config(path)
+        assert isinstance(cfg.robot, RobotConfig)
+        assert cfg.robot.urdf_path == "custom/panda.urdf"
+        assert isinstance(cfg.task, TaskConfig)
+        assert cfg.task.default_user_goal == "把机械臂移到红色方块上方"
+        assert isinstance(cfg.agent, AgentConfig)
+        assert cfg.agent.max_react_rounds == 5
+        assert isinstance(cfg.experiment, ExperimentConfig)
+        assert cfg.experiment.enabled is False
+    finally:
+        os.unlink(path)
+
+
+def test_appconfig_minimal_yaml_load():
+    """仅有老四节时，新增四节使用默认值。"""
+    path = _write_yaml(
+        """\
+env:
+  use_gui: false
+vla:
+  backend: mock
+llm:
+  api_key: "k"
+explore:
+  enabled: false
+"""
+    )
+    try:
+        cfg = load_config(path)
+        assert isinstance(cfg.robot, RobotConfig)
+        assert cfg.robot.urdf_path == "franka_panda/panda.urdf"
+        assert isinstance(cfg.task, TaskConfig)
+        assert cfg.task.default_user_goal == "把机械臂移到红色方块上方"
+        assert isinstance(cfg.agent, AgentConfig)
+        assert cfg.agent.max_react_rounds == 5
+        assert isinstance(cfg.experiment, ExperimentConfig)
+        assert cfg.experiment.enabled is False
     finally:
         os.unlink(path)
 

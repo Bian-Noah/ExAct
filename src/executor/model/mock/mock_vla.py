@@ -1,46 +1,21 @@
-"""VLA（Vision-Language-Action）模型抽象与 Mock 实现。
+"""Mock VLA 实现：基于 instruction 哈希生成伪随机 7D 动作。
 
-定义 BaseVLA 抽象基类约束所有 VLA 后端（Mock/OpenVLA）的接口契约，
-并提供 MockVLA 用于第二步迭代的执行器主循环验证（不依赖真实模型权重）。
+用于执行器主循环验证（不依赖真实模型权重）。
+相同 seed + 相同 instruction 下输出完全一致，便于 pytest 断言可复现。
+故意忽略 image 参数。
 """
 
 import hashlib
 import random
-from abc import ABC, abstractmethod
 
 import numpy as np
 
 from env.base import Action7D
-
-
-class BaseVLA(ABC):
-    """VLA 抽象基类。
-
-    所有 VLA 后端（MockVLA / OpenVLA 等）必须继承此类并实现 predict 方法。
-    方法签名固定为 (image, instruction) -> Action7D，不得修改。
-    """
-
-    @abstractmethod
-    def predict(self, image: np.ndarray, instruction: str) -> Action7D:
-        """输入图片 + 自然语言指令，输出 7D 动作。
-
-        Args:
-            image: np.ndarray (H, W, 3) uint8，当前场景截图。
-            instruction: 自然语言指令字符串，如 "移动到红色方块上方"。
-
-        Returns:
-            Action7D NamedTuple，7 个字段依次为
-            dx/dy/dz（位移米）/ drx/dry/drz（旋转弧度）/ gripper（夹爪开合 [0,1]）。
-        """
+from executor.model.base import BaseVLA
 
 
 class MockVLA(BaseVLA):
-    """Mock VLA：基于 instruction 哈希生成伪随机 7D 动作。
-
-    用于第二步迭代验证 executor 主循环逻辑，与真实 VLA 模型质量解耦。
-    相同 seed + 相同 instruction 下输出完全一致，便于 pytest 断言可复现。
-    故意忽略 image 参数。
-    """
+    """Mock VLA：基于 instruction 哈希生成伪随机 7D 动作。"""
 
     def __init__(self, seed: int = 0):
         """初始化 MockVLA。

@@ -1,13 +1,23 @@
 """ObserveTool：观察当前场景工具。
 
-供 Agent 调用以获取场景物体列表和末端执行器位置。
+继承 langchain_core.tools.BaseTool。
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import logging
+from typing import Any, Optional, Type
 
-from tools.base import BaseTool
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel, Field
+
+
+class ObserveInput(BaseModel):
+    """ObserveTool 输入参数。"""
+
+    target: Optional[str] = Field(
+        default=None, description="可选，过滤特定物体名（大小写不敏感）"
+    )
 
 
 def _get_pos(obj: dict) -> tuple:
@@ -26,19 +36,13 @@ class ObserveTool(BaseTool):
     可指定 target 参数过滤特定物体（大小写不敏感，先精确后包含匹配）。
     """
 
-    name = "observe"
-    description = (
+    name: str = "observe"
+    description: str = (
         "观察当前场景，返回物体列表和末端执行器位置。"
         "可指定 target 参数（可选）过滤特定物体。"
     )
-
-    def __init__(self, env: Any):
-        """初始化。
-
-        Args:
-            env: 环境对象（duck typing，含 get_obs() 方法即可，不强制继承 BaseEnv）。
-        """
-        self.env = env
+    args_schema: Type[BaseModel] = ObserveInput
+    env: Any = None
 
     def _run(self, target: Optional[str] = None) -> str:
         """执行观察。
@@ -49,8 +53,11 @@ class ObserveTool(BaseTool):
         Returns:
             多行字符串：第一行末端执行器位置，其后物体列表。
         """
+        _log = logging.getLogger("observe")
+        _log.info(f"observe 调用开始 target={target}")
         # observe 工具只需要 ee_pos 和 object_info，跳过 RGB 渲染
         obs = self.env.get_obs(include_rgb=False)
+        _log.info("observe 调用完成")
         lines: list[str] = []
 
         # 末端执行器位置

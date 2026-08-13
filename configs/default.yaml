@@ -19,3 +19,24 @@ llm:
 
 explore:
   enabled: false                  # 第五步再启用
+
+robot:
+  urdf_path: "franka_panda/panda.urdf"
+  base_position: [0.0, 0.0, 0.0]
+  arm_joint_indices: [0, 1, 2, 3, 4, 5, 6]
+  ee_link_index: 11
+  finger_joint_indices: [9, 10]
+
+task:
+  default_user_goal: "把机械臂移到红色方块上方"
+  objects:
+    - type: cube
+      pos: [0.5, 0, 0.1]
+      color: red
+
+agent:
+  max_react_rounds: 5
+  max_tool_calls: 3
+
+experiment:
+  enabled: false                  # Iteration 3 启用，本迭代占位

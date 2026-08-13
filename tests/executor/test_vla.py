@@ -1,6 +1,10 @@
-"""executor/vla.py 单元测试。
+"""executor/model 单元测试。
 
 覆盖 BaseVLA 抽象契约 + MockVLA 行为（字段范围、可复现性、忽略 image）。
+
+注：BaseVLA / MockVLA 已迁移到 executor.model 子包下，本文件从
+`executor.model.base` 与 `executor.model.mock.mock_vla` 导入，并保留从
+`executor` 的 re-export 入口，确保兼容性。
 """
 
 import inspect
@@ -9,7 +13,10 @@ import numpy as np
 import pytest
 
 from env.base import Action7D
-from executor.vla import BaseVLA, MockVLA
+from executor import BaseVLA as BaseVLA_re
+from executor import MockVLA as MockVLA_re
+from executor.model.base import BaseVLA
+from executor.model.mock.mock_vla import MockVLA
 
 
 # ========== BaseVLA 抽象契约测试 ==========
@@ -122,3 +129,27 @@ def test_mockvla_ignores_image():
     img_empty = np.zeros((0, 0, 3), dtype=np.uint8)
     img_empty_result = v.predict(img_empty, "move")
     assert img_none_result == img_random_result == img_empty_result
+
+
+# ========== re-export 兼容性测试 ==========
+
+
+def test_executor_reexports_basetypes():
+    """executor.__init__ 应 re-export BaseVLA / MockVLA，便于老代码兼容。"""
+    assert BaseVLA_re is BaseVLA
+    assert MockVLA_re is MockVLA
+    assert inspect.isabstract(BaseVLA_re) is True
+    assert issubclass(MockVLA_re, BaseVLA_re)
+
+
+# ========== 新结构验证 ==========
+
+
+def test_subclass_must_implement_predict():
+    """未实现 predict 的子类无法实例化。"""
+
+    class BadVLA(BaseVLA):
+        pass
+
+    with pytest.raises(TypeError):
+        BadVLA()

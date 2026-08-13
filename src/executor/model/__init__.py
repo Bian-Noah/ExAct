@@ -1,0 +1,1 @@
+"""executor.model 子包：VLA 模型抽象与具体后端。"""

@@ -4,10 +4,16 @@
 与 PyBullet GUI 的线程约束冲突会段错误）。
 改为 StateGraph 拼装 + 普通函数 tool_node，工具在主线程同步执行。
 官方 Quickstart 推荐写法：https://docs.langchain.com/oss/python/langgraph/quickstart
+
+iter1-pipeline-refactor-config 后：
+- MAX_REACT_ROUNDS / MAX_TOOL_CALLS 作为模块级常量保留作默认值
+- create_exact_agent 接收 max_react_rounds / max_tool_calls 参数（默认 5 / 3）
+- run_agent 接受可选的 max_react_rounds 参数透传给 agent.invoke 的 recursion_limit
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Literal
 
 from langchain_core.messages import (
@@ -23,19 +29,21 @@ from typing_extensions import TypedDict
 
 from agents.core import AgentResult, ToolCallRecord
 
-# ReAct 循环最大轮数
+# ReAct 循环最大轮数（默认值，可被 create_exact_agent 参数覆盖）
 # 每轮：LLM 决策 + 工具执行。
 # 设为 5 以容纳 MAX_TOOL_CALLS=3 时的截断场景（最坏 4 次工具调用 + final answer = 9 次节点访问）。
 MAX_REACT_ROUNDS = 5
 
-# 工具调用次数硬上限（防止 LLM 不收敛）
+# 工具调用次数硬上限默认值（防止 LLM 不收敛）
 # 达到上限后强制返回提示消息，让 LLM 基于现有信息回答
 MAX_TOOL_CALLS = 3
+
 
 # 扩展 MessagesState：增加 tool_call_count 字段
 class _AgentState(MessagesState):
     """Agent 状态：messages + 工具调用计数。"""
     tool_call_count: int
+
 
 DEFAULT_SYSTEM_PROMPT = (
     "你是 ExActAgent，一个具身智能助手。你可以调用以下工具来感知和操作环境：\n"
@@ -46,16 +54,24 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
-def create_exact_agent(llm: Any, tools: list, system_prompt: str = None):
+def create_exact_agent(
+    llm: Any,
+    tools: list,
+    system_prompt: str = None,
+    max_react_rounds: int = MAX_REACT_ROUNDS,
+    max_tool_calls: int = MAX_TOOL_CALLS,
+):
     """用 StateGraph 拼装 agent（主线程同步执行工具）。
 
     Args:
         llm: ChatOpenAI 实例（或其他 BaseChatModel）。
         tools: BaseTool 实例列表。
         system_prompt: 可选系统提示词。
+        max_react_rounds: 超过此节点访问次数后中断（默认 5）。
+        max_tool_calls: 工具调用累计上限（默认 3）。
 
     Returns:
-        CompiledStateGraph，可通过 .invoke({"messages": [...]}) 调用。
+        CompiledStateGraph，可通过 .invoke({"{"..."） 调用。
     """
     if system_prompt is None:
         system_prompt = DEFAULT_SYSTEM_PROMPT
@@ -76,7 +92,7 @@ def create_exact_agent(llm: Any, tools: list, system_prompt: str = None):
         """tool node：同步执行工具。主线程，无线程池。
 
         官方 Quickstart 写法：普通函数循环调用 tool.invoke()。
-        超过 MAX_TOOL_CALLS 后强制返回截断提示，让 LLM 给出 final answer。
+        超过 max_tool_calls 后强制返回截断提示，让 LLM 给出 final answer。
         """
         messages = state["messages"]
         last_message: AIMessage = messages[-1]
@@ -91,9 +107,9 @@ def create_exact_agent(llm: Any, tools: list, system_prompt: str = None):
             tc_id = tc.get("id", "")
 
             # 硬截断：超过上限后不再执行工具，返回提示
-            if count > MAX_TOOL_CALLS:
+            if count > max_tool_calls:
                 content = (
-                    f"已达到工具调用上限({MAX_TOOL_CALLS})，"
+                    f"已达到工具调用上限({max_tool_calls})，"
                     "请基于现有观察和动作结果，用自然语言回答任务结果。"
                 )
                 results.append(ToolMessage(content=content, tool_call_id=tc_id))
@@ -137,6 +153,7 @@ def run_agent(
     agent: Any,
     user_goal: str,
     system_prompt: str = None,
+    max_react_rounds: int = MAX_REACT_ROUNDS,
 ) -> AgentResult:
     """调用 LangGraph agent 并转换为 AgentResult。
 
@@ -144,20 +161,20 @@ def run_agent(
         agent: create_exact_agent 返回的 CompiledStateGraph。
         user_goal: 用户目标字符串。
         system_prompt: 未使用（system_prompt 已在 create_exact_agent 中设置）。
+        max_react_rounds: agent.invoke 的 recursion_limit 上限（默认 MAX_REACT_ROUNDS）。
 
     Returns:
         AgentResult: 含 trajectory/final_answer/total_tool_calls。
     """
-    import logging
-    _log = logging.getLogger("lc_agent")
+    _log = logging.getLogger("agent")
 
     messages: list[BaseMessage] = [HumanMessage(content=user_goal)]
 
-    _log.info(f"agent.invoke 开始 (max_react_rounds={MAX_REACT_ROUNDS})")
+    _log.info(f"agent.invoke 开始 (max_react_rounds={max_react_rounds})")
     try:
         result = agent.invoke(
             {"messages": messages},
-            config={"recursion_limit": MAX_REACT_ROUNDS * 2 + 1},
+            config={"recursion_limit": max_react_rounds * 2 + 1},
         )
     except Exception as e:
         _log.error(f"agent.invoke 失败: {e}")

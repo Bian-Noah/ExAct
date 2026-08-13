@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import os
 
-from src.config.loader import AppConfig, load_config
+from src.config.loader import (
+    AgentConfig,
+    AppConfig,
+    ExperimentConfig,
+    RobotConfig,
+    TaskConfig,
+    load_config,
+)
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DEFAULT_YAML_PATH = os.path.join(PROJECT_ROOT, "configs", "default.yaml")
@@ -33,3 +40,19 @@ def test_functional_scenario_a_load_default_yaml():
     assert cfg.llm.max_tokens == 2048
     # explore
     assert cfg.explore.enabled is False
+    # robot
+    assert isinstance(cfg.robot, RobotConfig)
+    assert cfg.robot.urdf_path == "franka_panda/panda.urdf"
+    assert cfg.robot.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+    assert cfg.robot.ee_link_index == 11
+    # task
+    assert isinstance(cfg.task, TaskConfig)
+    assert cfg.task.default_user_goal == "把机械臂移到红色方块上方"
+    assert len(cfg.task.objects) == 1
+    # agent
+    assert isinstance(cfg.agent, AgentConfig)
+    assert cfg.agent.max_react_rounds == 5
+    assert cfg.agent.max_tool_calls == 3
+    # experiment
+    assert isinstance(cfg.experiment, ExperimentConfig)
+    assert cfg.experiment.enabled is False

@@ -4,10 +4,14 @@ import os
 
 import src.config as config_module
 from src.config import (
+    AgentConfig,
     AppConfig,
     EnvConfig,
+    ExperimentConfig,
     ExploreConfig,
     LLMConfig,
+    RobotConfig,
+    TaskConfig,
     VLAConfig,
     load_config,
 )
@@ -15,11 +19,15 @@ from src.config import (
 
 def test_config_all_exports_present():
     expected = {
+        "AgentConfig",
         "AppConfig",
         "EnvConfig",
-        "VLAConfig",
-        "LLMConfig",
+        "ExperimentConfig",
         "ExploreConfig",
+        "LLMConfig",
+        "RobotConfig",
+        "TaskConfig",
+        "VLAConfig",
         "load_config",
     }
     assert set(config_module.__all__) == expected
@@ -33,9 +41,25 @@ def test_imported_dataclasses_are_correct_types():
     assert VLAConfig().backend == "mock"
     assert LLMConfig().model == "MiniMax-M3"
     assert ExploreConfig().enabled is False
+    assert RobotConfig().urdf_path == "franka_panda/panda.urdf"
+    assert TaskConfig().default_user_goal == "把机械臂移到红色方块上方"
+    assert AgentConfig().max_react_rounds == 5
+    assert ExperimentConfig().enabled is False
     # AppConfig 需要显式传入子配置实例
-    app = AppConfig(env=EnvConfig(), vla=VLAConfig(), llm=LLMConfig(), explore=ExploreConfig())
-    assert isinstance(app.env, EnvConfig)
+    app = AppConfig(
+        env=EnvConfig(),
+        vla=VLAConfig(),
+        llm=LLMConfig(),
+        explore=ExploreConfig(),
+        robot=RobotConfig(),
+        task=TaskConfig(),
+        agent=AgentConfig(),
+        experiment=ExperimentConfig(),
+    )
+    assert isinstance(app.robot, RobotConfig)
+    assert isinstance(app.task, TaskConfig)
+    assert isinstance(app.agent, AgentConfig)
+    assert isinstance(app.experiment, ExperimentConfig)
 
 
 def test_load_config_via_public_import():
@@ -46,3 +70,8 @@ def test_load_config_via_public_import():
     assert isinstance(cfg, AppConfig)
     assert cfg.vla.backend == "mock"
     assert cfg.env.camera_resolution == (640, 480)
+    # 新增节也都被加载
+    assert isinstance(cfg.robot, RobotConfig)
+    assert isinstance(cfg.task, TaskConfig)
+    assert isinstance(cfg.agent, AgentConfig)
+    assert isinstance(cfg.experiment, ExperimentConfig)

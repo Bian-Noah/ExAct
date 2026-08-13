@@ -3,6 +3,7 @@
 核心组件：
 - ExecResult: 执行结果 dataclass
 - Executor: 主循环类，循环调 VLA 驱动 env，直到完成或超时
+- BaseVLA / MockVLA / create_vla: VLA 模型抽象与工厂（详见 executor.model 子包）
 """
 
 from dataclasses import dataclass
@@ -10,7 +11,9 @@ from dataclasses import dataclass
 from env.base import BaseEnv
 from executor.build_input import build_vla_input
 from executor.check_done import check_done
-from executor.vla import BaseVLA
+from executor.model.base import BaseVLA
+from executor.model.factory import create_vla
+from executor.model.mock.mock_vla import MockVLA
 from utils.logging import setup_logging
 
 
@@ -107,5 +110,12 @@ class Executor:
         )
 
 
-# 方便 from executor import Executor, ExecResult, MockVLA
-from executor.vla import MockVLA  # noqa: E402
+__all__ = [
+    "BaseVLA",
+    "ExecResult",
+    "Executor",
+    "MockVLA",
+    "build_vla_input",
+    "check_done",
+    "create_vla",
+]
