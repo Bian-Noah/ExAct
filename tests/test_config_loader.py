@@ -80,7 +80,10 @@ def test_agent_config_defaults():
 
 def test_experiment_config_defaults():
     cfg = ExperimentConfig()
-    assert cfg.enabled is False
+    # Iteration 3：默认开启录制
+    assert cfg.enabled is True
+    assert cfg.root == "data/experiment"
+    assert cfg.log_to_stdout is True
 
 
 # ---------- 2. _from_dict 正常场景 ----------
@@ -334,7 +337,10 @@ def test_experiment_config_in_appconfig():
     }
     app = _from_dict(raw, AppConfig)
     assert isinstance(app.experiment, ExperimentConfig)
-    assert app.experiment.enabled is False
+    # Iteration 3：默认开启录制
+    assert app.experiment.enabled is True
+    assert app.experiment.root == "data/experiment"
+    assert app.experiment.log_to_stdout is True
 
 
 def test_appconfig_full_yaml_load():
@@ -403,7 +409,10 @@ explore:
         assert isinstance(cfg.agent, AgentConfig)
         assert cfg.agent.max_react_rounds == 5
         assert isinstance(cfg.experiment, ExperimentConfig)
-        assert cfg.experiment.enabled is False
+        # Iteration 3：默认开启录制
+        assert cfg.experiment.enabled is True
+        assert cfg.experiment.root == "data/experiment"
+        assert cfg.experiment.log_to_stdout is True
     finally:
         os.unlink(path)
 

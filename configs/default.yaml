@@ -40,4 +40,6 @@ agent:
   max_tool_calls: 3
 
 experiment:
-  enabled: false                  # Iteration 3 启用，本迭代占位
+  enabled: true                  # Iteration 3 启用：开启后每次跑 pipeline 自动落盘到 data/experiment/{timestamp}/
+  root: "data/experiment"        # 实验产物根目录（相对项目根）
+  log_to_stdout: true            # log 事件是否同时输出到终端

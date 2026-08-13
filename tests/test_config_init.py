@@ -46,7 +46,10 @@ def test_imported_dataclasses_are_correct_types():
     assert RobotConfig().urdf_path == "franka_panda/panda.urdf"
     assert TaskConfig().default_user_goal == "把机械臂移到红色方块上方"
     assert AgentConfig().max_react_rounds == 5
-    assert ExperimentConfig().enabled is False
+    # Iteration 3：ExperimentConfig 默认开启录制
+    assert ExperimentConfig().enabled is True
+    assert ExperimentConfig().root == "data/experiment"
+    assert ExperimentConfig().log_to_stdout is True
     # AppConfig 需要显式传入子配置实例
     app = AppConfig(
         env=EnvConfig(),

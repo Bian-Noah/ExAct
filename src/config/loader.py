@@ -101,8 +101,16 @@ class AgentConfig:
 
 @dataclass
 class ExperimentConfig:
-    """实验数据持久化配置（Iteration 3 启用，本迭代占位）。"""
-    enabled: bool = False
+    """实验数据持久化配置（Iteration 3 启用）。
+
+    Attributes:
+        enabled: 是否开启实验录制。False 时 ExperimentRecorder 全 no-op。
+        root: 实验产物根目录（相对项目根的字符串路径）。
+        log_to_stdout: log 事件是否同步输出到终端。
+    """
+    enabled: bool = True
+    root: str = "data/experiment"
+    log_to_stdout: bool = True
 
 
 @dataclass

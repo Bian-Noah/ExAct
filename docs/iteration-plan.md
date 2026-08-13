@@ -10,22 +10,28 @@
 
 ## 迭代路线图总览
 
-| 迭代 | 名称                               | 目标                                                  | VLA 后端                  | 设备        |
-| ---- | ---------------------------------- | ----------------------------------------------------- | ------------------------- | ----------- |
-| 1    | 流水线重构与配置化                 | 清理技术债，建立可扩展结构                            | Mock（不替换）            | M4 Air      |
-| 2    | 渲染与环境模式配置化               | 解决 M4 Mac 段错误，渲染器(GPU/CPU)与环境模式均可配置 | Mock                      | M4 Air      |
-| 3    | 实验数据保存与 Pipeline 完善       | 支持实验轨迹/结果持久化，可复现                       | Mock                      | M4 Air      |
-| 4    | 图片存储器与 LLM 视觉能力          | LLM 能看图、存图，URL 可传给 VLA                      | Mock                      | M4 Air      |
-| 5    | LLM-VLA 适配器                     | 用 MiniMax-M3 本身作为伪 VLA，机械臂真正响应指令      | **LLMVLA**          | M4 Air      |
-| 6    | 探索机制 v1 - 基础探索             | 先探索再执行的双阶段流程跑通                          | LLMVLA                    | M4 Air      |
-| 7    | 探索机制 v2 - 策略化探索与知识利用 | 提升探索质量，验证知识传递效果                        | LLMVLA                    | M4 Air      |
-| 8    | 评估框架与对照实验                 | 量化探索收益，跑首批对照实验                          | LLMVLA → SmallVLA        | M4 Air      |
-| 9    | 小型 VLA 接入                      | 训练真实小型 VLA，替换 LLM-VLA                        | **SmallVLA**        | M4 Air      |
-| 10   | OpenVLA 接入与正式实验             | 探索机制完善后，接入 OpenVLA 做正式对照               | **OpenVLA-7B 4bit** | 4060 笔记本 |
+| 迭代  | 名称                                | 目标                                                            | VLA 后端           | 设备        | 状态          |
+| ----- | ----------------------------------- | --------------------------------------------------------------- | ------------------ | ----------- | ------------- |
+| 1     | 流水线重构与配置化                  | 清理技术债，建立可扩展结构                                       | Mock（不替换）     | M4 Air      | ✅ 已完成     |
+| 2     | 渲染与环境模式配置化                | 解决 M4 Mac 段错误，渲染器(GPU/CPU)与环境模式均可配置             | Mock               | M4 Air      | ✅ 已完成     |
+| 3     | 实验数据持久化（埋点解耦）          | 通过埋点机制收集实验数据，与业务管线解耦                          | Mock               | M4 Air      | ✅ 已完成     |
+| 4     | 图片存储器基础                      | 图片存取与 URL 协议，仅图片存储与引用                             | Mock               | M4 Air      | ⏳ 待启动     |
+| 5     | LLM 多模态视觉接入                  | LLM 通过 URL 看到图片（多模态输入），observe 工具返回图片 URL      | Mock               | M4 Air      | ⏳ 待启动     |
+| 6     | VLA 图像输入链路                    | 图片 URL 传递给 VLA，executor/run_action 支持 image_url         | Mock               | M4 Air      | ⏳ 待启动     |
+| 7     | LLM-VLA 适配器                      | 用 MiniMax-M3 本身作为伪 VLA，机械臂真正响应指令                 | **LLMVLA**         | M4 Air      | ⏳ 待启动     |
+| 8     | 探索机制 v1 - 基础探索              | 先探索再执行的双阶段流程跑通                                     | LLMVLA             | M4 Air      | ⏳ 待启动     |
+| 9     | 探索机制 v2 - 策略化探索与知识利用  | 提升探索质量，验证知识传递效果                                   | LLMVLA             | M4 Air      | ⏳ 待启动     |
+| 10    | 评估框架与对照实验                  | 量化探索收益，跑首批对照实验                                     | LLMVLA → SmallVLA  | M4 Air      | ⏳ 待启动     |
+| 11    | 小型 VLA 接入                       | 训练真实小型 VLA，替换 LLM-VLA                                   | **SmallVLA**       | M4 Air      | ⏳ 待启动     |
+| 12    | OpenVLA 接入与正式实验              | 探索机制完善后，接入 OpenVLA 做正式对照                          | **OpenVLA-7B 4bit** | 4060 笔记本 | ⏳ 待启动     |
+
+> 拆分说明：原 Iteration 4「图片存储器与 LLM 视觉能力」任务过多（包含图片存储、observe 改造、action 改造、executor 链路、BaseVLA 契约、config 扩展、pipeline 集成 7 件事），现拆为 4 / 5 / 6 三个迭代。原 Iteration 5（LLM-VLA 适配器）顺延为新 Iteration 7。原 Iteration 3 数据保存方案由"扩展管线接口"改为"ExperimentRecorder 一体化"——业务代码 `recorder.emit(...)` 埋点，由 `src/experiment/recorder.py` 一个类同时负责收集与保存三类数据（`log` → `experiment.log`、`observe_image` → `observer/*.png`、`video_frame` 占位）。每次实验产物在 `ExAct/data/experiment/{时间戳}/` 下。详见下文。
 
 ---
 
 ## Iteration 1: 流水线重构与配置化
+
+**状态**：✅ 已完成
 
 **目标**：清理技术债，建立可扩展的项目结构。
 
@@ -69,11 +75,11 @@
        ├── mock/
        │   └── mock_vla.py       # MockVLA（从 executor/vla.py 迁出）
        ├── llm_vla/
-       │   └── llm_vla.py        # LLMVLA（Iteration 5 实现）
+       │   └── llm_vla.py        # LLMVLA（Iteration 7 实现）
        ├── small_vla/
-       │   └── small_vla.py      # SmallVLA（Iteration 9 实现）
+       │   └── small_vla.py      # SmallVLA（Iteration 11 实现）
        └── openvla/
-           └── openvla_adapter.py # OpenVLA 适配器（Iteration 10 实现）
+           └── openvla_adapter.py # OpenVLA 适配器（Iteration 12 实现）
      ```
    - `executor/vla.py` 原文件删除，内容拆分到 `model/base.py` + `model/mock/`
    - `executor/model/factory.py` 新增 `create_vla(vla_config, llm_config=None) -> BaseVLA`
@@ -96,6 +102,8 @@
 ---
 
 ## Iteration 2: 渲染与环境模式配置化
+
+**状态**：✅ 已完成
 
 **目标**：解决 M4 Mac 上 `p.getCameraImage()` 段错误问题，支持渲染器（GPU/CPU）和环境模式（DIRECT/GUI）均可配置。
 
@@ -157,7 +165,7 @@
 
    - [observe.py](file:///Users/noah/项目/保研练习项目/ExAct/src/tools/observe.py) 的 `include_rgb=False` 改为 `include_rgb=True`
    - 验证：observe 工具能正常获取 RGB 图像（不段错误）
-   - 注意：此阶段 observe 返回的仍是文本，图片如何传给 LLM 在 Iteration 4 解决
+   - 注意：此阶段 observe 返回的仍是文本，图片如何传给 LLM 在 Iteration 5 解决
 6. **测试**
 
    - 单元测试：`_resolve_renderer("auto"/"cpu"/"gpu")` 在当前平台返回正确常量
@@ -176,105 +184,177 @@
 
 ---
 
-## Iteration 3: 实验数据保存与 Pipeline 完善
+## Iteration 3: 实验数据落地（ExperimentRecorder 一体化）
 
-**目标**：完善 pipeline，支持实验轨迹和结果的持久化保存，为后续对照实验打基础。
+**状态**：✅ 已完成
+
+**目标**：`src/experiment/recorder.py` 中的 `ExperimentRecorder` 类**同时负责收集数据和保存数据**——业务代码统一调 `recorder.emit(event, **fields)`，由 recorder 内部按事件类型落到 txt 日志、图片、视频占位。
 
 ### 背景
 
-当前 pipeline（Iteration 1 建立）只负责组装和运行，不保存实验数据。后续 Iteration 8 要做对照实验，需要：
+Iteration 10 要做对照实验，需要能复盘每次实验。当前 pipeline / executor / tools 只负责跑通，**没有产物**。
 
-- 每次实验的完整轨迹（工具调用记录、LLM 回答、动作序列）
-- 实验配置快照（用了什么 VLA 后端、什么任务、是否探索）
-- 结构化存储，便于后续统计分析和复现
+需求简单：
+
+- 一份 txt 日志，像终端输出一样记录全过程（启动信息、LLM 思考、工具调用、动作、错误、时间戳）
+- 一系列图片，observe 工具每次调用的截图统一存放
+- 视频暂时不做（后续迭代）
+
+**反例（避免）**：把数据保存塞进 `PipelineResult`、`AgentResult`、`ExecResult` 等接口——业务代码被迫感知"我要被观测"，每个新模块都要传回调，污染面太大。
+
+**正解**：业务代码只调 `recorder.emit(event, **fields)`，recorder 内部识别三类事件并落盘。**emit 入口、目录创建、文件写入都在 `ExperimentRecorder` 一个类里，不拆成独立框架。**
+
+### 数据落地结构
+
+```
+ExAct/data/experiment/
+  └── 20260813_153000/             # 时间戳命名的实验目录（每次实验一个）
+       ├── experiment.log          # 整个实验过程的文本日志（类似终端输出）
+       └── observer/               # observe 工具返回的图片
+           ├── 001.png
+           ├── 002.png
+           └── ...
+```
+
+**目录命名规则**：`YYYYMMDD_HHMMSS`（本地时间）。同一秒内多次实验自动追加 `_001`、`_002` 后缀。
+
+**视频占位**：本迭代不实现，但事件类型 `video_frame` 已在 recorder 里登记（直接 no-op），未来加视频实现即可启用，**业务代码零改动**。
+
+### 三类事件契约
+
+| event 名称        | 必带 fields                          | 落盘目标                          |
+| ----------------- | ------------------------------------ | --------------------------------- |
+| `log`             | `message: str`, `level: str = "INFO"` | 追加到 `experiment.log`        |
+| `observe_image`   | `image: np.ndarray`, `idx: int`       | 保存到 `observer/{idx:03d}.png`   |
+| `video_frame`     | `image: np.ndarray`, `timestamp: float` | **本迭代占位，no-op 不落盘** |
+
+**其他事件一律 no-op**——recorder 收到不认识的 event 直接 return，不报错。这样未来想加新事件时，业务代码可以先 `recorder.emit(...)` 占位，等实现了再真正落盘。
 
 ### 任务
 
-1. **设计 PipelineResult 数据结构**
+1. **ExperimentRecorder 类**（`src/experiment/recorder.py`，唯一模块）
 
-   - 扩展 `AgentResult`，增加实验元信息：
-     - `experiment_id`：实验唯一 ID（时间戳 + 任务名）
-     - `config_snapshot`：实验时的配置快照（YAML dump）
-     - `task_spec`：任务定义
-     - `timestamp_start` / `timestamp_end`：起止时间
-     - `env_mode`：direct / gui
-     - `vla_backend`：mock / llm_vla / small_vla / openvla
-   - 包含完整轨迹：`trajectory`（工具调用记录）+ `final_answer`
-2. **实验数据持久化**
+   - 一个类搞定所有事，**不拆框架**：
 
-   - `pipeline/` 新增 `storage.py` 模块
-   - 每次实验保存到 `experiments/{experiment_id}/` 目录：
+     ```python
+     class ExperimentRecorder:
+         def __init__(self, root: Path, enabled: bool, log_to_stdout: bool):
+             self.root = root          # ExAct/data/experiment
+             self.enabled = enabled    # False 时所有方法 no-op
+             self.log_to_stdout = log_to_stdout
+             self.exp_dir: Path | None = None
+             self.observer_dir: Path | None = None
+             self._log_fh: TextIO | None = None
+
+         def start(self) -> Path:
+             """创建 {root}/{timestamp}/ 和 observer/，返回 exp_dir"""
+             ...
+
+         def emit(self, event: str, **fields) -> None:
+             """统一入口，按 event 类型分发到 _handle_log / _handle_observe_image / _handle_video_frame"""
+             ...
+
+         def _handle_log(self, message: str, level: str = "INFO") -> None:
+             """追加一行到 experiment.log"""
+             ...
+
+         def _handle_observe_image(self, image: np.ndarray, idx: int) -> None:
+             """保存到 observer/{idx:03d}.png"""
+             ...
+
+         def _handle_video_frame(self, image: np.ndarray, timestamp: float) -> None:
+             """本迭代占位，直接 return"""
+             ...
+
+         def finish(self, success: bool, summary: str) -> None:
+             """emit('log', message=f'Pipeline finished, success={success}, summary={summary}')"""
+             ...
      ```
-     experiments/
-       └── 20260813_153000_task_move_to_red/
-         ├── config.yaml          # 配置快照
-         ├── result.json          # PipelineResult 序列化
-         ├── trajectory.jsonl     # 工具调用轨迹（每行一条）
-         └── meta.json            # 实验元信息
+
+   - **dispatch 表**：内部维护 `EVENT_HANDLERS = {"log": _handle_log, "observe_image": _handle_observe_image, "video_frame": _handle_video_frame}`，emit 直接查表分派
+   - **enabled=False 行为**：所有方法（start / emit / finish）退化为 no-op，业务代码无需分支判断
+   - **异常处理**：emit 内 try/except 吞掉异常记 warning，不让埋点崩业务
+   - **进程级单例**：用模块全局变量 `_global_recorder: ExperimentRecorder | None = None`，业务代码通过 `get_recorder() -> ExperimentRecorder` 拿同一实例
+2. **业务代码埋点（关键位置）**
+
+   - 在以下位置加 `recorder.emit(...)`，**每处不超过一行**：
+
+     | 埋点位置                    | event              | fields                                |
+     | --------------------------- | ------------------ | ------------------------------------- |
+     | pipeline 启动               | `log`              | `message="Pipeline started, ..."`     |
+     | pipeline 结束               | `log`              | `message="Pipeline finished, ..."`    |
+     | observe 工具拿到 ndarray 后 | `observe_image` + `log` | `image=ndarray, idx=call_count` / `message="[observe] saved observer/{idx:03d}.png"` |
+     | 工具调用日志（可选）        | `log`              | `message="[tool:{name}] args={...}"`  |
+     | LLM 响应（可选）            | `log`              | `message="[llm] {content 摘要}"`      |
+     | action 调用（可选）         | `log`              | `message="[action] instruction={...}"`|
+
+   - **约束**：埋点只读本地变量，不修改业务状态、不做异常处理
+   - **约束**：业务代码只 `from src.experiment.recorder import get_recorder; recorder = get_recorder()`，不 import 任何 sink/event_bus 类
+3. **pipeline 集成**
+
+   - `pipeline/runner.py` 启动时：
+     ```python
+     from src.experiment.recorder import ExperimentRecorder
+     recorder = ExperimentRecorder(
+         root=config.experiment.root,
+         enabled=config.experiment.enabled,
+         log_to_stdout=config.experiment.log_to_stdout,
+     )
+     recorder.start()
      ```
-   - `ExperimentStorage.save(result)` 方法：原子写入，失败不丢数据
-3. **Pipeline 集成数据保存**
+   - 结束时调 `recorder.finish(success=..., summary=...)`
+   - **不再扩展** `PipelineResult`、`AgentResult` 的字段
+   - **不传** recorder 实例给下层模块——下层通过 `get_recorder()` 拿全局实例
+4. **配置项**
 
-   - `pipeline.run()` 执行完成后自动调用 `storage.save(result)`
-   - 支持配置开关：`config.experiment.save_to_disk`（默认 True）
-   - 支持自定义输出目录：`config.experiment.output_dir`（默认 `experiments/`）
-4. **实验配置扩展**
-
-   - `config` 新增 `experiment` 节：
+   - `configs/default.yaml` 新增 `experiment` 节：
      ```yaml
      experiment:
-       save_to_disk: true
-       output_dir: "experiments"
-       save_trajectory: true       # 是否保存详细轨迹
-       save_config_snapshot: true  # 是否保存配置快照
+       enabled: true                 # 默认开启，每次跑都存档
+       root: "data/experiment"       # 相对项目根目录
+       log_to_stdout: true           # log 事件是否同时输出到终端
      ```
-5. **实验索引与查询**
-
-   - `ExperimentStorage.list_experiments()`：列出所有实验
-   - `ExperimentStorage.load(experiment_id)`：加载某个实验结果
-   - 为 Iteration 8 的批量实验和统计分析打基础
+   - `ExperimentConfig` dataclass（`enabled`, `root`, `log_to_stdout`）
+   - `enabled=False` 时 recorder 所有方法 no-op（**业务代码无感知**）
 
 ### 交付物
 
-- `src/pipeline/storage.py` 实现
-- `PipelineResult` 数据结构（含实验元信息）
+- `src/experiment/recorder.py` 实现（一个类搞定：目录创建 + emit 分发 + 三类落地）
+- 业务代码在 observe 工具、pipeline 启动/结束处埋点（`recorder.emit(...)`）
+- 每次实验自动产出 `experiment.log` + `observer/*.png`
 - `config.experiment` 配置节
-- 实验数据自动保存到 `experiments/` 目录
-- 数据加载与查询 API
+- 单元测试：目录创建、三类事件分发、未知事件 no-op、enabled=False 时全 no-op
+
+### 不在本迭代
+
+- ❌ 视频录制（`video_frame` 事件占位 handler 是 no-op，等未来）
+- ❌ 独立的 tracer/event_bus/Sink 框架（已合并进 recorder，不拆）
+- ❌ 全量结构化事件采集（events.jsonl、其他类型事件）
+- ❌ 实验索引查询脚本（grep `experiment.log` 即可）
+- ❌ 实验报告自动生成（人工看 log + 图片复盘即可）
+- ❌ 为观测而扩展 dataclass 字段
+
+### 后续迭代如何用
+
+- **人工复盘**：打开 `experiment.log` 看每步干了什么，看 `observer/*.png` 看环境如何变化
+- **Iteration 10 对照实验**：批量跑实验后 `grep -l "Pipeline finished, success=true" */experiment.log` 统计成功率
+- **新事件类型**：在 `EVENT_HANDLERS` 表里加一行 + 一个 `_handle_xxx` 方法，业务代码即可调用
 
 ---
 
-## Iteration 4: 图片存储器与 LLM 视觉能力
+## Iteration 4: 图片存储器基础
 
-**目标**：建立图片存储器模块，让 LLM 能看图片、存图片，并通过 URL 将图片传递给执行工具和 VLA 模型。
+**目标**：建立通用的图片存取与 URL 协议，让图片可以在模块间用 URL 引用，与具体存储后端解耦。**仅做存储，不做多模态接入。**
 
 ### 背景
 
-Iteration 2 解决了渲染段错误，observe 工具能拿到 RGB 图像。但当前 observe 工具返回的是纯文本字符串，图片无法传给 LLM。本迭代建立图片存储器，实现图片的存储、URL 引用和跨模块传递。
+Iteration 2 解决了渲染段错误，observe 工具能拿到 RGB 图像。但当前 observe 工具返回的是纯文本字符串，图片无法在模块间传递，后续要让 LLM 看到图、让 VLA 看到图，都需要一个统一的图片引用机制。
 
-### 核心设计
-
-```
-observe 工具获取图片
-    ↓
-ImageStore.save(image) → 生成 URL（如 "img://observations/20260813_153000_001.png"）
-    ↓
-observe 工具返回给 LLM 的消息中包含：
-    1. 文本描述（ee_pos + object_info）
-    2. 图片 URL（LLM 可通过 URL 访问图片内容）
-    ↓
-LLM 决策后调用 action 工具时，可传入 image_url
-    ↓
-action 工具将 image_url 传给 executor
-    ↓
-executor 通过 ImageStore.load(url) 获取图片
-    ↓
-传给 VLA.predict(image, instruction)
-```
+本迭代只做**最薄一层**：图片能存、能取、能用 URL 引用。LLM 能不能看到图、VLA 能不能拿到图，留给后续迭代。
 
 ### 任务
 
-1. **实现图片存储器模块**（`utils/image_store/`）
+1. **图片存储器模块**（`src/utils/image_store/`）
 
    - 目录结构：
      ```
@@ -284,43 +364,17 @@ executor 通过 ImageStore.load(url) 获取图片
        ├── backend.py        # 存储后端抽象（内存 / 文件系统）
        └── url_scheme.py     # URL 生成与解析
      ```
-   - `ImageStore` 类核心接口：
+   - `ImageStore` 核心接口：
      - `save(image: np.ndarray, category: str = "observations") -> str`：保存图片，返回 URL
      - `load(url: str) -> np.ndarray`：通过 URL 加载图片
      - `exists(url: str) -> bool`：检查 URL 是否存在
-     - `list(category: str = None) -> list[str]`：列出图片 URL
-   - URL 格式设计：`img://{category}/{filename}`（如 `img://observations/20260813_153000_001.png`）
+     - `list(category: str | None = None) -> list[str]`：列出图片 URL
+   - URL 格式：`img://{category}/{filename}`（如 `img://observations/20260813_153000_001.png`）
    - 存储后端：
      - `MemoryBackend`：图片存内存（默认，适合单次运行）
-     - `FileBackend`：图片存文件系统（适合持久化，路径从 config 读）
+     - `FileBackend`：图片存文件系统（路径从 config 读）
    - 工厂函数 `create_image_store(config) -> ImageStore`
-2. **observe 工具改造**
-
-   - `ObserveTool` 注入 `ImageStore` 实例
-   - `observe._run()` 获取 RGB 图像后：
-     - 调用 `image_store.save(image)` 生成 URL
-     - 返回结构化内容：文本描述 + 图片 URL
-   - LangChain BaseTool 返回支持多模态内容（`content` 可以是 list，含 `text` 和 `image_url` 块）
-   - LLM 通过 `image_url` 字段看到图片
-3. **action 工具改造**
-
-   - `ActionTool` 注入 `ImageStore` 实例
-   - `ActionInput` 新增可选字段 `image_url: Optional[str]`
-   - LLM 调用 action 时可传入 observe 返回的图片 URL
-   - `action._run()` 将 `image_url` 传给 `executor.run_action()`
-4. **executor 链路改造**
-
-   - `Executor.run_action()` 新增可选参数 `image_url: str = None`
-   - 若提供 `image_url`：通过 `image_store.load(url)` 获取图片，传给 VLA
-   - 若未提供：走原有逻辑（`env.get_obs()` 获取当前图片）
-   - `build_vla_input()` 支持 `image_url` 字段
-5. **BaseVLA 接口验证**
-
-   - `BaseVLA.predict(image, instruction)` 接口不变
-   - LLMVLA（Iteration 5）可以忽略 image 参数
-   - SmallVLA/OpenVLA（Iteration 9/10）必须使用 image 参数
-   - 图片来源由上层（executor）决定，VLA 只接收 ndarray
-6. **config 配置扩展**
+2. **配置扩展**
 
    - 新增 `image_store` 配置节：
      ```yaml
@@ -328,23 +382,130 @@ executor 通过 ImageStore.load(url) 获取图片
        backend: "memory"          # "memory" | "file"
        file_dir: "data/images"    # 仅 file 后端使用
      ```
-7. **pipeline 集成**
+3. **单元测试**
 
-   - `pipeline/runner.py` 创建 `ImageStore` 实例，注入 observe 和 action 工具
-   - 实验结束时（Iteration 3 的 storage）可选保存所有图片
+   - `MemoryBackend` save/load/exists/list 路径覆盖
+   - `FileBackend` 跨进程持久化（写入文件 → 新实例读取）
+   - URL scheme 解析边界（空、非法 category、含空格）
+   - 工厂函数按 config 返回正确 backend
 
 ### 交付物
 
 - `src/utils/image_store/` 模块（store + backend + url_scheme）
-- observe 工具改造（返回文本 + 图片 URL）
-- action 工具改造（接受 image_url 参数）
-- executor 链路改造（支持 image_url 传图）
 - `config.image_store` 配置节
-- 端到端验证：LLM 能通过 observe 看到图片，action 能传递图片 URL 给 VLA
+- 单元测试通过
+
+### 不在本迭代
+
+- ❌ observe 工具改造（要等 Iteration 5）
+- ❌ action 工具改造（要等 Iteration 6）
+- ❌ executor 链路 image_url 传递（要等 Iteration 6）
+- ❌ LLM 多模态输入（要等 Iteration 5）
+- ❌ pipeline 集成（要等 Iteration 5/6）
 
 ---
 
-## Iteration 5: LLM-VLA 适配器
+## Iteration 5: LLM 多模态视觉接入
+
+**目标**：让 LLM 能通过 URL 看到 observe 工具返回的图片，实现原生多模态感知。**不动 VLA 链路。**
+
+### 背景
+
+Iteration 4 解决了图片的存储和引用，但 observe 工具仍然只返回文本。LLM 需要看到场景截图才能做探索判断、子任务完成度评估等高级决策。本迭代让 observe 工具返回"文本 + 图片 URL"结构化内容，LLM 通过原生多模态能力看到图片。
+
+**范围限定**：本迭代只让 LLM 看到图，不动 action 工具、不动 executor 链路、不动 VLA。VLA 拿到图片是 Iteration 6 的事。
+
+### 任务
+
+1. **observe 工具改造**
+
+   - `ObserveTool` 注入 `ImageStore` 实例
+   - `observe._run()` 流程：
+     1. 调 `env.render()` 拿 RGB ndarray
+     2. 调 `image_store.save(image, category="observations")` 拿 URL
+     3. 返回结构化内容：文本描述（ee_pos + object_info）+ 图片 URL
+   - LangChain BaseTool 的 `content` 字段支持 list，含 `text` 和 `image_url` 块
+   - **关键**：observe 仍可独立运行（不依赖 image_store 也能工作，只是拿不到图）
+2. **Agent 多模态消息组装**
+
+   - `agents/lc_agent.py`（或对应文件）改造 tool 消息组装：
+     - tool 返回的 `content` 为 list 时，拆成 text + image_url 块传给 LLM
+     - 单测覆盖 list / str 两种返回形态
+3. **prompt 注入图片引用**
+
+   - system prompt 不变（LLM 通过 image_url 块直接看图）
+   - 不强制 LLM "必须看图"，保留灵活性
+4. **端到端冒烟**
+
+   - 跑一次任务，验证日志能看到 observe 返回的图片 URL
+   - 验证 LLM 后续回复中确实在引用图片内容（如"我看到红色方块在..."）
+
+### 交付物
+
+- `ObserveTool` 返回结构化内容（text + image_url）
+- Agent tool 消息组装支持多模态块
+- 端到端验证 LLM 看到图
+
+### 不在本迭代
+
+- ❌ action 工具接收 image_url（要等 Iteration 6）
+- ❌ executor.run_action(image_url)（要等 Iteration 6）
+- ❌ VLA 接口改动（BaseVLA.predict 已经接 image，本迭代不调 VLA）
+
+---
+
+## Iteration 6: VLA 图像输入链路
+
+**目标**：让 action 工具可以携带图片 URL，executor 把 URL 解析为 ndarray 传给 VLA，完成端到端的图像传递链路。
+
+### 背景
+
+Iteration 5 让 LLM 看到了图。LLM 决策后调用 action 工具时，需要把当前观察到的图片也带过去——VLA（特别是真实 VLA，如 SmallVLA / OpenVLA）必须看图才能输出合理动作。
+
+但 Iteration 7 的 LLMVLA 不看图（它用语义化 ee_pos + object_info），所以 image_url 是可选参数，向后兼容。
+
+### 任务
+
+1. **action 工具改造**
+
+   - `ActionTool` 注入 `ImageStore` 实例
+   - `ActionInput` 新增可选字段 `image_url: str | None`
+   - `action._run()` 把 `image_url` 透传给 `executor.run_action(image_url=...)`
+2. **executor 链路改造**
+
+   - `Executor.run_action()` 新增可选参数 `image_url: str | None = None`
+   - 若提供 `image_url`：通过 `image_store.load(url)` 拿 ndarray，传给 VLA
+   - 若未提供：走原逻辑（`env.get_obs()` 拿当前图片，或 None）
+   - `build_vla_input()` 支持 `image` 字段（从 url 或 env 来都行）
+3. **BaseVLA 接口验证**
+
+   - `BaseVLA.predict(image, instruction) -> Action7D` 接口不变
+   - LLMVLA（Iteration 7）忽略 image 参数
+   - SmallVLA / OpenVLA（Iteration 11 / 12）必须使用 image
+   - 图片来源由 executor 决定，VLA 只接收 ndarray
+4. **pipeline 集成**
+
+   - `pipeline/runner.py` 创建 `ImageStore` 实例，注入 observe 和 action 工具
+   - 默认 `MemoryBackend`（一次实验内有效），由 config 切换 `FileBackend`
+5. **端到端冒烟**
+
+   - LLM 决策时主动传 image_url，验证 VLA 收到 ndarray
+   - 验证 image_url 缺失时仍走原逻辑（向后兼容）
+
+### 交付物
+
+- `ActionTool` 接受 image_url 参数
+- `Executor.run_action(image_url=...)` 支持
+- 端到端：observe → LLM 看到图 → action 带 image_url → VLA 收到 ndarray
+
+### 不在本迭代
+
+- ❌ 实现 LLMVLA（要等 Iteration 7）
+- ❌ 真正用图驱动机械臂（VLA 还是 Mock，但链路通了）
+
+---
+
+## Iteration 7: LLM-VLA 适配器
 
 **目标**：用同一个 MiniMax-M3 作为伪 VLA 脊髓，替换 MockVLA，让机械臂真正响应指令。
 
@@ -370,7 +531,7 @@ LLMVLA.predict(image, instruction):
 调用 MiniMax-M3 API → 解析 JSON → Action7D
 ```
 
-**注意**：LLMVLA 可以不看图片（image 参数忽略），因为它接收的是语义化的 ee_pos + object_info。但接口遵守 `BaseVLA.predict(image, instruction)` 契约，image 参数保留。真正必须看图的是 SmallVLA/OpenVLA（Iteration 9/10）。
+**注意**：LLMVLA 可以不看图片（image 参数忽略），因为它接收的是语义化的 ee_pos + object_info。但接口遵守 `BaseVLA.predict(image, instruction)` 契约，image 参数保留。真正必须看图的是 SmallVLA/OpenVLA（Iteration 11/12）。
 
 ### 任务
 
@@ -403,13 +564,13 @@ LLMVLA.predict(image, instruction):
 
 ---
 
-## Iteration 6: 探索机制 v1 - 基础探索
+## Iteration 8: 探索机制 v1 - 基础探索
 
 **目标**：实现"先探索再执行"的双阶段流程，验证探索-执行闭环。
 
 ### 背景
 
-项目核心创新点是探索-执行双阶段。Iteration 6 实现最基础的探索能力：让 LLM 能主动调用探索工具，记录环境知识，并在执行阶段利用这些知识。
+项目核心创新点是探索-执行双阶段。Iteration 8 实现最基础的探索能力：让 LLM 能主动调用探索工具，记录环境知识，并在执行阶段利用这些知识。
 
 ### 任务
 
@@ -442,7 +603,7 @@ LLMVLA.predict(image, instruction):
 
 ---
 
-## Iteration 7: 探索机制 v2 - 策略化探索与知识利用
+## Iteration 9: 探索机制 v2 - 策略化探索与知识利用
 
 **目标**：提升探索质量，验证探索知识对 VLA 执行的实质性提升。
 
@@ -482,7 +643,7 @@ LLMVLA.predict(image, instruction):
 
 ---
 
-## Iteration 8: 评估框架与对照实验
+## Iteration 10: 评估框架与对照实验
 
 **目标**：建立量化评估体系，跑首批对照实验，用 LLMVLA 验证探索机制的效果。
 
@@ -524,13 +685,13 @@ LLMVLA.predict(image, instruction):
 
 ---
 
-## Iteration 9: 小型 VLA 接入
+## Iteration 11: 小型 VLA 接入
 
 **目标**：训练并接入真实的小型 VLA，替换 LLM-VLA。验证 LLMVLA 上验证过的探索机制在真实小 VLA 上是否同样有效。
 
 ### 背景
 
-LLM-VLA 能跑通流程，但它本质上也是同一个 LLM，不是真正的"脊髓级"模型——它直接"看到" ee_pos 和 object_info 语义化信息，而真实 VLA 只能看图像 + 指令。Iteration 9 引入真正的小 VLA，保证研究结论的有效性。
+LLM-VLA 能跑通流程，但它本质上也是同一个 LLM，不是真正的"脊髓级"模型——它直接"看到" ee_pos 和 object_info 语义化信息，而真实 VLA 只能看图像 + 指令。Iteration 11 引入真正的小 VLA，保证研究结论的有效性。
 
 ### 任务
 
@@ -567,7 +728,7 @@ LLM-VLA 能跑通流程，但它本质上也是同一个 LLM，不是真正的"�
 
 ---
 
-## Iteration 10: OpenVLA 接入与正式实验
+## Iteration 12: OpenVLA 接入与正式实验
 
 **目标**：探索机制完全成熟后，在 4060 笔记本上接入 OpenVLA，做最终正式对照实验，形成结论。
 
@@ -610,9 +771,21 @@ LLM-VLA 能跑通流程，但它本质上也是同一个 LLM，不是真正的"�
 
 ### 配置化原则
 
-- 所有可调参数（机械臂、任务、Agent 限制、VLA 后端、环境模式、图片存储）统一在 YAML 配置
+- 所有可调参数（机械臂、任务、Agent 限制、VLA 后端、环境模式、图片存储、埋点开关）统一在 YAML 配置
 - 程序内部保留默认 fallback 值，config 缺失时使用默认值
 - pipeline 从 config 提取参数，显式传入各模块（不在模块内直接读 config）
+
+### 埋点解耦原则
+
+**业务侧零侵入，观测侧一体化在 ExperimentRecorder**：
+
+- 业务代码（pipeline / observe 工具等）只在关键位置 `recorder.emit(event, **fields)`，不感知数据落到哪里、什么格式
+- `ExperimentRecorder` **唯一负责**收集与保存：建目录、emit 分发、写文件——一个类搞定，不拆成框架
+- recorder **只识别三类事件**：`log` / `observe_image` / `video_frame`（视频占位）；其他事件一律 no-op
+- `ExperimentConfig.enabled=False` 时 recorder 所有方法 no-op，业务代码无需分支判断
+- 新增观测维度只需在对应位置加一行 `recorder.emit(...)`，无需修改任何接口、签名、返回值
+- 不为"被观测"而扩展 dataclass 字段（`AgentResult` / `ExecResult` / `ActionInput` 等保持纯净）
+- 数据落地最小化：每个实验目录三类文件（log txt + observer/*.png + 视频占位），人类可直接复盘
 
 ### 模块边界
 
@@ -626,22 +799,24 @@ executor/      动作执行循环（Executor + ExecResult + build_vla_input + ch
         ├── base.py                    BaseVLA 抽象
         ├── factory.py                 create_vla(config) 工厂
         ├── mock/mock_vla.py           MockVLA
-        ├── llm_vla/llm_vla.py         LLMVLA（Iteration 5）
-        ├── small_vla/small_vla.py     SmallVLA（Iteration 9）
-        └── openvla/openvla_adapter.py OpenVLA（Iteration 10）
-pipeline/      主流程编排（组装 env + executor + agent + storage）
-  ├── runner.py     Pipeline 主流程
-  └── storage.py    实验数据持久化（Iteration 3）
+        ├── llm_vla/llm_vla.py         LLMVLA（Iteration 7）
+        ├── small_vla/small_vla.py     SmallVLA（Iteration 11）
+        └── openvla/openvla_adapter.py OpenVLA（Iteration 12）
+pipeline/      主流程编排（组装 env + executor + agent + recorder）
+  └── runner.py     Pipeline 主流程（启动/结束时调 recorder.start() / finish()）
+experiment/    实验数据收集与落地（Iteration 3，唯一模块）
+  ├── __init__.py
+  └── recorder.py   ExperimentRecorder：start 建目录、emit 分发三类事件、写文件
 utils/
   ├── logging.py    日志
   ├── image.py      图像编解码工具
-  └── image_store/  图片存储器（Iteration 4，大模块）
+  └── image_store/  图片存储器（Iteration 4-6，分阶段实施）
         ├── __init__.py
         ├── store.py          ImageStore 主类
         ├── backend.py        存储后端（内存 / 文件系统）
         └── url_scheme.py     URL 生成与解析
-explore/       探索机制相关（Iteration 6 启用）
-evaluation/    评估框架（Iteration 8 启用）
+explore/       探索机制相关（Iteration 8 启用）
+evaluation/    评估框架（Iteration 10 启用）
 ```
 
 ### VLA 接口契约与可插拔性
@@ -662,9 +837,9 @@ evaluation/    评估框架（Iteration 8 启用）
 | backend       | 实现路径                                      | 是否看图             | 作用                              |
 | ------------- | --------------------------------------------- | -------------------- | --------------------------------- |
 | `mock`      | `executor/model/mock/mock_vla.py`           | 否                   | 单元测试 / smoke test             |
-| `llm_vla`   | `executor/model/llm_vla/llm_vla.py`         | 否（用文本语义信息） | 探索机制研究基座（Iteration 5-8） |
-| `small_vla` | `executor/model/small_vla/small_vla.py`     | **是**（必须） | 真实小 VLA 对照（Iteration 9）    |
-| `openvla`   | `executor/model/openvla/openvla_adapter.py` | **是**（必须） | 最终正式实验（Iteration 10）      |
+| `llm_vla`   | `executor/model/llm_vla/llm_vla.py`         | 否（用文本语义信息） | 探索机制研究基座（Iteration 7-10） |
+| `small_vla` | `executor/model/small_vla/small_vla.py`     | **是**（必须） | 真实小 VLA 对照（Iteration 11）   |
+| `openvla`   | `executor/model/openvla/openvla_adapter.py` | **是**（必须） | 最终正式实验（Iteration 12）     |
 
 ### 图片流转路径
 
@@ -694,18 +869,59 @@ VLA.predict(image, instruction)
                     LLM 下发增强子指令 → VLA 执行
 ```
 
-### 实验数据持久化路径
+### 实验数据落地路径（ExperimentRecorder 一体化）
 
 ```
-pipeline.run() 执行
+pipeline 启动
     ↓
-PipelineResult (含轨迹 + 配置快照 + 元信息)
+recorder = ExperimentRecorder(root="ExAct/data/experiment", enabled=True, log_to_stdout=True)
+recorder.start()
+    ↓ 创建 ExAct/data/experiment/{YYYYMMDD_HHMMSS}/ 和 observer/ 子目录
+    ↓ recorder.emit("log", message="Pipeline started, ...")
+                ↓
+                recorder._handle_log → 追加到 experiment.log
+业务代码关键节点（observe / llm / action / executor step）
     ↓
-ExperimentStorage.save(result)
+recorder.emit("observe_image", image=ndarray, idx=1)
+                ↓
+                recorder._handle_observe_image → 保存到 observer/001.png
+recorder.emit("log", message="[observe] saved observer/001.png")
+                ↓
+                recorder._handle_log → 追加到 experiment.log
+recorder.emit("log", message="[llm] ...")
+recorder.emit("log", message="[action] instruction=...")
+    ↓ 全部追加到 experiment.log
+pipeline 结束
     ↓
-experiments/{experiment_id}/
-  ├── config.yaml          # 配置快照
-  ├── result.json          # 完整结果
-  ├── trajectory.jsonl     # 工具调用轨迹
-  └── meta.json            # 实验元信息
+recorder.finish(success=True, summary="steps=12, success=true")
+    ↓ 写收尾日志到 experiment.log
 ```
+
+**关键设计**：
+
+- 业务代码只调 `recorder.emit(...)`，不感知内部 handler、目录路径、文件格式
+- recorder 内部用 dispatch 表分派事件：`EVENT_HANDLERS = {"log": ..., "observe_image": ..., "video_frame": ...}`
+- `video_frame` 事件本迭代占位（handler 直接 return），未来加视频实现时业务代码零改动
+
+**目录结构**：
+
+```
+ExAct/data/experiment/
+  └── {YYYYMMDD_HHMMSS}/
+       ├── experiment.log          # 全程文本日志（含时间戳）
+       └── observer/
+            ├── 001.png
+            ├── 002.png
+            └── ...
+```
+
+**与扩展接口方案对比**：
+
+| 维度           | 扩展接口方案（弃）                          | ExperimentRecorder 一体化（本迭代）     |
+| -------------- | ------------------------------------------- | -------------------------------------- |
+| 业务代码改动   | 改 dataclass 字段、改函数签名、传回调       | 仅在关键位置加 `recorder.emit(...)`    |
+| 新增观测维度   | 改 PipelineResult + AgentResult + 调用链    | 在对应位置加一行 `recorder.emit(...)`  |
+| 关闭观测       | 不支持（接口已固化）                        | `enabled=False` 时 recorder 全 no-op  |
+| 落盘产物       | 紧耦合 result.json + trajectory.jsonl       | log txt + observer/*.png（可直接读）   |
+| 复盘方式       | 写解析脚本读 JSONL                          | 打开 log + 看图片                      |
+| 实现复杂度     | 事件总线 + 全量结构化事件 + 配置            | 一个类，dispatch 表 + 三个 handler      |

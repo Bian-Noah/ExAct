@@ -55,6 +55,8 @@ def test_functional_scenario_a_load_default_yaml():
     assert isinstance(cfg.agent, AgentConfig)
     assert cfg.agent.max_react_rounds == 5
     assert cfg.agent.max_tool_calls == 3
-    # experiment
+    # experiment（Iteration 3：默认开启录制）
     assert isinstance(cfg.experiment, ExperimentConfig)
-    assert cfg.experiment.enabled is False
+    assert cfg.experiment.enabled is True
+    assert cfg.experiment.root == "data/experiment"
+    assert cfg.experiment.log_to_stdout is True
