@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import warnings
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import TypeVar, Type, Optional, get_type_hints, Literal
 
 import yaml
@@ -56,10 +56,33 @@ class EnvConfig:
 
 
 @dataclass
+class LerobotConfig:
+    """LeRobot 后端 policy 特化配置（仅 vla.backend == "lerobot" 时生效）。
+
+    Attributes:
+        policy_type: policy 类型，决定从 lerobot.common.policies 导入哪个类。
+            常见值：act（轻量、默认）、diffusion、smolvla、pi0。
+        device: 推理设备，默认 "cuda:0"。
+        quantization: 量化等级，"none" | "8bit" | "4bit"。
+            仅对 VLA 类 policy（smolvla / pi0 / pi0fast）生效；
+            ACT / Diffusion 纯 PyTorch 实现无量化概念，保持 "none"。
+        image_key: obs dict 中图像键名。默认 "observation.images.top"，
+            仅作 fallback；加载后优先从 policy.config 自动探测。
+        action_dim: policy 输出维度；超过 7 时截前 7 维映射为 Action7D。
+    """
+    policy_type: str = "act"
+    device: str = "cuda:0"
+    quantization: str = "none"
+    image_key: str = "observation.images.top"
+    action_dim: int = 14
+
+
+@dataclass
 class VLAConfig:
     backend: str = "mock"
     model_path: Optional[str] = None
     max_steps: int = 50
+    lerobot: LerobotConfig = field(default_factory=LerobotConfig)
 
 
 @dataclass

@@ -13,12 +13,13 @@ def create_vla(vla_config: VLAConfig, llm_config: LLMConfig | None = None) -> Ba
     """按 vla_config.backend 字段分派，返回 BaseVLA 子类实例。
 
     Args:
-        vla_config: VLAConfig 实例（backend 字段决定分派目标）。
+        vla_config: VLAConfig 实例（backend 字段决定分派目标；lerobot 后端还
+            会读取 vla_config.lerobot 嵌套配置）。
         llm_config: 可选，LLMVLA 后端（Iteration 5）会用到；当前所有已实现后端
             均忽略此参数。
 
     Returns:
-        BaseVLA 子类实例（当前只支持 MockVLA）。
+        BaseVLA 子类实例。
 
     Raises:
         NotImplementedError: backend 为 llm_vla / small_vla / openvla 时。
@@ -28,6 +29,20 @@ def create_vla(vla_config: VLAConfig, llm_config: LLMConfig | None = None) -> Ba
 
     if backend == "mock":
         return MockVLA(seed=0)
+
+    if backend == "lerobot":
+        # 延迟导入：lerobot_vla 顶层 import torch，阶段一（M4，无 torch）不应被拖垮
+        from executor.model.lerobot.lerobot_vla import LeRobotVLA
+
+        lc = vla_config.lerobot
+        return LeRobotVLA(
+            model_path=vla_config.model_path,
+            policy_type=lc.policy_type,
+            device=lc.device,
+            quantization=lc.quantization,
+            image_key=lc.image_key,
+            action_dim=lc.action_dim,
+        )
 
     if backend == "llm_vla":
         raise NotImplementedError(

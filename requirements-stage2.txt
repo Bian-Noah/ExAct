@@ -5,11 +5,12 @@
 # --- OpenVLA 后端（仅推理）---
 torch>=2.2
 transformers>=4.40
-bitsandbytes>=0.43
+bitsandbytes>=0.43  # 同时供 LeRobot 后端 4bit/8bit 量化复用
 accelerate>=0.27
 timm==0.9.10        # OpenVLA 官方 README 锁定版本
 tokenizers==0.19.1  # OpenVLA 官方 README 锁定版本
 flash-attn==2.5.5   # 可选；缺包时 OpenVLA 后端自动回退 eager attention
 
 # --- LeRobot 后端（仅推理）---
-lerobot>=0.4
+# >=0.6：make_pre_post_processors 处理器管线 API（0.4 无此入口）
+lerobot>=0.6

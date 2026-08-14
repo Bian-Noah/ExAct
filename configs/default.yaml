@@ -8,9 +8,20 @@ env:
   camera_resolution: [640, 480]   # list，加载时转为 tuple[int, int]
 
 vla:
-  backend: mock                   # "mock" | "openvla"
-  model_path: null                # 仅 openvla 需要，mock 设为 null
+  backend: mock                   # "mock" | "lerobot"
+  model_path: null                # 仅 lerobot / openvla 需要，mock 设为 null
+                                  #   lerobot 例: "lerobot/act_aloha_sim_transfer_cube_human"
+                                  #             "lerobot/smolvla_base"
+                                  #             "lerobot/pi0_libero_finetuned"
   max_steps: 50                   # 单个动作最多执行步数
+  lerobot:                        # 仅 backend: lerobot 时生效（policy 特化配置）
+    policy_type: act              # act | diffusion | smolvla | pi0 | vqbet | pi0fast
+    device: "cuda:0"              # 推理设备
+    quantization: none            # none | 8bit | 4bit（仅 VLA 类生效：smolvla/pi0/pi0fast）
+                                  #   smolvla: 4bit ~2GB 推理显存，8GB 卡 4bit 或 none 均可
+                                  #   pi0:     fp16 ~14GB 装不下，8GB 卡必须 4bit（~4GB）
+    # image_key: "observation.images.top"   # 可选，默认加载后从 policy.config 自动探测
+    # action_dim: 14               # 可选，policy 输出维度，>7 时截前 7 维
 
 llm:
   api_key: "YOUR_API_KEY_HERE"    # ★ 用户手动填写，提交代码时保持占位符

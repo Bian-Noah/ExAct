@@ -13,6 +13,7 @@ from src.config.loader import (
     EnvConfig,
     ExperimentConfig,
     ExploreConfig,
+    LerobotConfig,
     LLMConfig,
     RobotConfig,
     TaskConfig,
@@ -38,6 +39,43 @@ def test_vla_config_defaults():
     assert cfg.backend == "mock"
     assert cfg.model_path is None
     assert cfg.max_steps == 50
+
+
+def test_lerobot_config_defaults():
+    cfg = LerobotConfig()
+    assert cfg.policy_type == "act"
+    assert cfg.device == "cuda:0"
+    assert cfg.quantization == "none"
+    assert cfg.image_key == "observation.images.top"
+    assert cfg.action_dim == 14
+
+
+def test_vla_config_lerobot_nested_default():
+    # VLAConfig 默认的 lerobot 嵌套字段使用默认 LerobotConfig
+    cfg = VLAConfig()
+    assert isinstance(cfg.lerobot, LerobotConfig)
+    assert cfg.lerobot.policy_type == "act"
+    assert cfg.lerobot.quantization == "none"
+
+
+def test_from_dict_vla_lerobot_nested():
+    data = {
+        "backend": "lerobot",
+        "model_path": "lerobot/pi0_libero_finetuned",
+        "lerobot": {
+            "policy_type": "pi0",
+            "device": "cuda:0",
+            "quantization": "4bit",
+        },
+    }
+    vla = _from_dict(data, VLAConfig)
+    assert vla.backend == "lerobot"
+    assert vla.model_path == "lerobot/pi0_libero_finetuned"
+    assert vla.lerobot.policy_type == "pi0"
+    assert vla.lerobot.quantization == "4bit"
+    # 未提供的字段走默认
+    assert vla.lerobot.image_key == "observation.images.top"
+    assert vla.lerobot.action_dim == 14
 
 
 def test_llm_config_defaults():
