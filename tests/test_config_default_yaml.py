@@ -44,9 +44,10 @@ def test_functional_scenario_a_load_default_yaml():
     assert cfg.explore.enabled is False
     # robot
     assert isinstance(cfg.robot, RobotConfig)
+    assert cfg.robot.type == "panda"
     assert cfg.robot.urdf_path == "franka_panda/panda.urdf"
-    assert cfg.robot.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
-    assert cfg.robot.ee_link_index == 11
+    assert cfg.robot.panda.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+    assert cfg.robot.panda.ee_link_index == 11
     # task
     assert isinstance(cfg.task, TaskConfig)
     assert cfg.task.default_user_goal == "把机械臂移到红色方块上方"

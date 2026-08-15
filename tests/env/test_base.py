@@ -5,7 +5,7 @@ import inspect
 import numpy as np
 import pytest
 
-from env.base import BaseEnv, Action7D
+from env.base import BaseEnv, Action7D, ActionSpec
 
 
 # ============================================================
@@ -109,6 +109,10 @@ def test_baseenv_full_subclass_can_instantiate_and_call():
 
         def close(self):
             pass
+
+        @property
+        def input_spec(self):
+            return ActionSpec("task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper"))
 
     env = Good()
 

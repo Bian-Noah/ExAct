@@ -95,11 +95,12 @@ def test_explore_config_defaults():
 
 def test_robot_config_defaults():
     cfg = RobotConfig()
+    assert cfg.type == "panda"
     assert cfg.urdf_path == "franka_panda/panda.urdf"
     assert cfg.base_position == (0.0, 0.0, 0.0)
-    assert cfg.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
-    assert cfg.ee_link_index == 11
-    assert cfg.finger_joint_indices == (9, 10)
+    assert cfg.panda.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+    assert cfg.panda.ee_link_index == 11
+    assert cfg.panda.finger_joint_indices == (9, 10)
 
 
 def test_task_config_defaults():
@@ -329,22 +330,45 @@ def test_load_config_empty_yaml_uses_defaults():
 def test_robot_config_yaml_parse():
     cfg = _from_dict(
         {
+            "type": "panda",
             "urdf_path": "custom/robot.urdf",
-            "arm_joint_indices": [1, 2, 3],
+            "panda": {
+                "arm_joint_indices": [1, 2, 3],
+            },
         },
         RobotConfig,
     )
+    assert cfg.type == "panda"
     assert cfg.urdf_path == "custom/robot.urdf"
-    assert cfg.arm_joint_indices == (1, 2, 3)
-    assert isinstance(cfg.arm_joint_indices, tuple)
+    assert cfg.panda.arm_joint_indices == (1, 2, 3)
+    assert isinstance(cfg.panda.arm_joint_indices, tuple)
     # 未指定字段使用默认值
-    assert cfg.ee_link_index == 11
+    assert cfg.panda.ee_link_index == 11
 
 
 def test_robot_config_missing_uses_defaults():
     cfg = _from_dict({}, RobotConfig)
+    assert cfg.type == "panda"
     assert cfg.urdf_path == "franka_panda/panda.urdf"
-    assert cfg.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+    assert cfg.panda.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+
+
+def test_robot_config_legacy_flat_format_merged_into_panda():
+    """旧平铺格式（arm_joint_indices 在顶层）→ 合并进 panda 特化块，不丢配置。"""
+    cfg = _from_dict(
+        {
+            "urdf_path": "custom/robot.urdf",
+            "arm_joint_indices": [1, 2, 3],
+            "ee_link_index": 5,
+        },
+        RobotConfig,
+    )
+    assert cfg.type == "panda"
+    assert cfg.urdf_path == "custom/robot.urdf"
+    assert cfg.panda.arm_joint_indices == (1, 2, 3)
+    assert cfg.panda.ee_link_index == 5
+    # 未提供的夹爪索引用默认值
+    assert cfg.panda.finger_joint_indices == (9, 10)
 
 
 def test_task_config_yaml_parse():

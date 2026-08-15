@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 from config.loader import load_config
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 
 
 def _write_yaml(content: dict) -> str:
@@ -46,7 +46,7 @@ def test_config_drives_env_mode_renderer(tmp_path):
         encoding="utf-8",
     )
     config = load_config(str(cfg_path))
-    env = PyBulletPandaEnv(env_config=config.env)
+    env = PyBulletEnv(env_config=config.env)
     assert env._mode == "direct"
     assert env._renderer == p.ER_TINY_RENDERER
     assert env.use_gui is False
@@ -70,7 +70,7 @@ def test_config_drives_env_gui_gpu(tmp_path):
         encoding="utf-8",
     )
     config = load_config(str(cfg_path))
-    env = PyBulletPandaEnv(env_config=config.env)
+    env = PyBulletEnv(env_config=config.env)
     assert env._mode == "gui"
     assert env._renderer == p.ER_BULLET_HARDWARE_OPENGL
     assert env.use_gui is True
@@ -88,7 +88,7 @@ def test_config_drives_env_auto_renderer_resolved(tmp_path):
         encoding="utf-8",
     )
     config = load_config(str(cfg_path))
-    env = PyBulletPandaEnv(env_config=config.env)
+    env = PyBulletEnv(env_config=config.env)
     is_apple_silicon = (
         platform.system() == "Darwin" and platform.processor() == "arm"
     )

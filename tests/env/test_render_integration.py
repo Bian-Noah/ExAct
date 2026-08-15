@@ -11,13 +11,13 @@ import numpy as np
 import pytest
 
 from config.loader import EnvConfig
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 
 
 @pytest.mark.slow
 def test_render_multiple_calls_no_crash():
     """连续 render() 10 次不崩溃，返回 shape (480, 640, 3)。"""
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
     try:
         env.reset(task_spec={"objects": []})
         for _ in range(10):

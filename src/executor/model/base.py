@@ -4,28 +4,50 @@
 """
 
 import abc
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
-from env.base import Action7D
+from env.base import Action7D, ActionSpec
+
+
+@dataclass
+class VLAOutput:
+    """VLA 输出包装：值 + 语义 spec（适配层据此分派）。
+
+    Attributes:
+        values: 原始输出（np.ndarray / torch.Tensor / tuple / Action7D 等）。
+        spec: 该输出的语义 spec（空间/维度/每维含义）。
+    """
+
+    values: Any
+    spec: ActionSpec
 
 
 class BaseVLA(abc.ABC):
     """VLA 抽象基类。
 
     所有 VLA 后端（MockVLA / OpenVLA 等）必须继承此类并实现 predict 方法。
-    方法签名固定为 (image, instruction) -> Action7D，不得修改。
+    方法签名固定为 (image, instruction) -> VLAOutput。
     """
 
     @abc.abstractmethod
-    def predict(self, image: np.ndarray, instruction: str) -> Action7D:
-        """输入图片 + 自然语言指令，输出 7D 动作。
+    def predict(self, image: np.ndarray, instruction: str) -> VLAOutput:
+        """输入图片 + 自然语言指令，输出带 spec 的动作。
 
         Args:
             image: np.ndarray (H, W, 3) uint8，当前场景截图。
             instruction: 自然语言指令字符串，如 "移动到红色方块上方"。
 
         Returns:
-            Action7D NamedTuple，7 个字段依次为
-            dx/dy/dz（位移米）/ drx/dry/drz（旋转弧度）/ gripper（夹爪开合 [0,1]）。
+            VLAOutput：values 为动作值，spec 声明其语义。
+        """
+
+    @property
+    @abc.abstractmethod
+    def output_spec(self) -> ActionSpec:
+        """声明该 VLA 输出的动作 spec（空间/维度/每维含义）。
+
+        每个后端在类内部自声明（spec 是模型的固有属性，不落入 config）。
         """

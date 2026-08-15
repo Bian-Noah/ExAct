@@ -4,7 +4,7 @@
 跑通 predict：
 
   config/local.yaml
-    → PyBulletPandaEnv（启动仿真，拿一帧 RGB）
+    → PyBulletEnv（启动仿真，拿一帧 RGB）
     → LeRobotVLA.predict(image, instruction)
     → 打印动作或完整 traceback
 
@@ -91,8 +91,8 @@ def main() -> int:
     # 3) 启动 PyBullet 仿真（与 src/pipeline/runner.py 一致：传 env_config / robot_config）
     banner("STEP 3: 启动 PyBullet 仿真 env")
     try:
-        from env.pybullet_env import PyBulletPandaEnv
-        env = PyBulletPandaEnv(
+        from env.pybullet_env import PyBulletEnv
+        env = PyBulletEnv(
             env_config=cfg.env,
             robot_config=cfg.robot,
         )

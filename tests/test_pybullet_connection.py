@@ -1,7 +1,7 @@
 """PyBullet 连接检查和 close 安全断开的单元测试。
 
 iter1-pipeline-refactor-config 后：构造签名改为
-`PyBulletPandaEnv(env_config: EnvConfig, robot_config: RobotConfig)`，
+`PyBulletEnv(env_config: EnvConfig, robot_config: RobotConfig)`，
 模块级 ARM_JOINT_INDICES / EE_LINK_INDEX / FINGER_JOINT_INDICES 保留作
 RobotConfig 默认值的别名引用。
 """
@@ -9,9 +9,9 @@ RobotConfig 默认值的别名引用。
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config.loader import EnvConfig, RobotConfig
+from config.loader import EnvConfig, PandaRobotConfig, RobotConfig
 from env.pybullet_env import (
-    PyBulletPandaEnv,
+    PyBulletEnv,
     ARM_JOINT_INDICES,
     EE_LINK_INDEX,
     FINGER_JOINT_INDICES,
@@ -19,7 +19,7 @@ from env.pybullet_env import (
 
 
 def _make_env():
-    return PyBulletPandaEnv(
+    return PyBulletEnv(
         env_config=EnvConfig(use_gui=False),
         robot_config=RobotConfig(),
     )
@@ -42,29 +42,32 @@ class TestConstruction:
     """构造签名变化测试。"""
 
     def test_accepts_env_and_robot_config(self):
-        env = PyBulletPandaEnv(
+        env = PyBulletEnv(
             env_config=EnvConfig(use_gui=False),
             robot_config=RobotConfig(),
         )
         assert env.use_gui is False
         assert env.camera_resolution == (640, 480)
         assert env.robot_config.urdf_path == "franka_panda/panda.urdf"
-        assert env.robot_config.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
-        assert env.robot_config.ee_link_index == 11
+        assert env.robot_config.panda.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+        assert env.robot_config.panda.ee_link_index == 11
 
     def test_accepts_none_uses_defaults(self):
-        env = PyBulletPandaEnv()
+        env = PyBulletEnv()
         # iter2: 默认 mode=direct, use_gui=False
         assert env.use_gui is False
         assert env._mode == "direct"
         assert env.camera_resolution == (640, 480)
-        assert env.robot_config.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
+        assert env.robot_config.panda.arm_joint_indices == (0, 1, 2, 3, 4, 5, 6)
 
     def test_accepts_custom_robot_config(self):
-        custom = RobotConfig(urdf_path="custom/panda.urdf", ee_link_index=7)
-        env = PyBulletPandaEnv(env_config=EnvConfig(), robot_config=custom)
+        custom = RobotConfig(
+            urdf_path="custom/panda.urdf",
+            panda=PandaRobotConfig(ee_link_index=7),
+        )
+        env = PyBulletEnv(env_config=EnvConfig(), robot_config=custom)
         assert env.robot_config.urdf_path == "custom/panda.urdf"
-        assert env.robot_config.ee_link_index == 7
+        assert env.robot_config.panda.ee_link_index == 7
 
 
 class TestIsConnected:
@@ -142,24 +145,26 @@ class TestResetUsesRobotConfig:
 
     def test_urdf_path_from_robot_config(self):
         """robot_config.urdf_path 被读取。"""
-        env = PyBulletPandaEnv(
+        env = PyBulletEnv(
             env_config=EnvConfig(use_gui=False),
             robot_config=RobotConfig(urdf_path="custom/panda.urdf"),
         )
         assert env.robot_config.urdf_path == "custom/panda.urdf"
 
     def test_ee_link_index_from_robot_config(self):
-        """robot_config.ee_link_index 被读取。"""
-        env = PyBulletPandaEnv(
+        """robot_config.panda.ee_link_index 被读取。"""
+        env = PyBulletEnv(
             env_config=EnvConfig(use_gui=False),
-            robot_config=RobotConfig(ee_link_index=7),
+            robot_config=RobotConfig(panda=PandaRobotConfig(ee_link_index=7)),
         )
-        assert env.robot_config.ee_link_index == 7
+        assert env.robot_config.panda.ee_link_index == 7
 
     def test_arm_joint_indices_from_robot_config(self):
-        """robot_config.arm_joint_indices 被读取。"""
-        env = PyBulletPandaEnv(
+        """robot_config.panda.arm_joint_indices 被读取。"""
+        env = PyBulletEnv(
             env_config=EnvConfig(use_gui=False),
-            robot_config=RobotConfig(arm_joint_indices=(1, 2, 3, 4, 5, 6, 7)),
+            robot_config=RobotConfig(
+                panda=PandaRobotConfig(arm_joint_indices=(1, 2, 3, 4, 5, 6, 7))
+            ),
         )
-        assert env.robot_config.arm_joint_indices == (1, 2, 3, 4, 5, 6, 7)
+        assert env.robot_config.panda.arm_joint_indices == (1, 2, 3, 4, 5, 6, 7)

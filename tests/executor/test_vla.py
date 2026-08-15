@@ -12,10 +12,10 @@ import inspect
 import numpy as np
 import pytest
 
-from env.base import Action7D
+from env.base import Action7D, ActionSpec
 from executor import BaseVLA as BaseVLA_re
 from executor import MockVLA as MockVLA_re
-from executor.model.base import BaseVLA
+from executor.model.base import BaseVLA, VLAOutput
 from executor.model.mock.mock_vla import MockVLA
 
 
@@ -43,14 +43,22 @@ def test_basevla_subclass_missing_predict_cannot_instantiate():
 
 
 def test_basevla_full_subclass_can_instantiate():
-    """子类实现 predict 后可实例化且 predict 返回 Action7D。"""
+    """子类实现 predict + output_spec 后可实例化且 predict 返回 VLAOutput。"""
     class GoodVLA(BaseVLA):
+        @property
+        def output_spec(self):
+            return ActionSpec("task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper"))
+
         def predict(self, image, instruction):
-            return Action7D(0, 0, 0, 0, 0, 0, 0.5)
+            return VLAOutput(
+                values=Action7D(0, 0, 0, 0, 0, 0, 0.5),
+                spec=self.output_spec,
+            )
 
     v = GoodVLA()
     result = v.predict(None, "test")
-    assert isinstance(result, Action7D)
+    assert isinstance(result, VLAOutput)
+    assert isinstance(result.values, Action7D)
 
 
 # ========== MockVLA 行为测试 ==========
@@ -61,12 +69,13 @@ def test_mockvla_can_instantiate():
     MockVLA(seed=0)
 
 
-def test_mockvla_predict_returns_action7d():
-    """predict 返回 Action7D 实例。"""
+def test_mockvla_predict_returns_vlaoutput():
+    """predict 返回 VLAOutput 且 values 是 Action7D。"""
     v = MockVLA(seed=0)
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     result = v.predict(image, "move")
-    assert isinstance(result, Action7D)
+    assert isinstance(result, VLAOutput)
+    assert isinstance(result.values, Action7D)
 
 
 def test_mockvla_field_ranges():
@@ -74,7 +83,7 @@ def test_mockvla_field_ranges():
     v = MockVLA(seed=0)
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     for i in range(10):
-        result = v.predict(image, f"instruction_{i}")
+        result = v.predict(image, f"instruction_{i}").values
         assert -0.02 <= result.dx <= 0.02
         assert -0.02 <= result.dy <= 0.02
         assert -0.02 <= result.dz <= 0.02
@@ -89,8 +98,8 @@ def test_mockvla_reproducible_same_seed_and_instruction():
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     v1 = MockVLA(seed=42)
     v2 = MockVLA(seed=42)
-    r1 = v1.predict(image, "move to red")
-    r2 = v2.predict(image, "move to red")
+    r1 = v1.predict(image, "move to red").values
+    r2 = v2.predict(image, "move to red").values
     assert r1 == r2
     # 7 个字段逐一断言
     assert r1.dx == r2.dx
@@ -107,7 +116,7 @@ def test_mockvla_different_instruction_different_output():
     v = MockVLA(seed=0)
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     instructions = ["move_a", "move_b", "move_c", "move_d", "move_e"]
-    outputs = [v.predict(image, ins) for ins in instructions]
+    outputs = [v.predict(image, ins).values for ins in instructions]
     # 至少存在一组不同
     found_diff = False
     for i in range(len(outputs)):
@@ -128,10 +137,37 @@ def test_mockvla_ignores_image():
     img_random_result = v.predict(img_random, "move")
     img_empty = np.zeros((0, 0, 3), dtype=np.uint8)
     img_empty_result = v.predict(img_empty, "move")
-    assert img_none_result == img_random_result == img_empty_result
+    assert (
+        img_none_result.values
+        == img_random_result.values
+        == img_empty_result.values
+    )
 
 
 # ========== re-export 兼容性测试 ==========
+
+
+def test_mockvla_output_spec():
+    """MockVLA.output_spec → task 7 维 / gripper_index=6。"""
+    v = MockVLA(seed=0)
+    spec = v.output_spec
+    assert spec.space == "task"
+    assert spec.dim == 7
+    assert spec.gripper_index == 6
+
+
+def test_lerobot_vla_output_spec():
+    """LeRobotVLA.output_spec → joint 空间，dim 由 action_dim 决定（构造不加载）。
+
+    lerobot_vla 顶层 import torch，M4 无 torch 环境跳过（阶段二 RTX4060 验证）。
+    """
+    pytest.importorskip("torch")
+    from executor.model.lerobot.lerobot_vla import LeRobotVLA
+
+    v = LeRobotVLA(model_path="x", action_dim=14)
+    spec = v.output_spec
+    assert spec.space == "joint"
+    assert spec.dim == 14
 
 
 def test_executor_reexports_basetypes():

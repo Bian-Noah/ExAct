@@ -5,7 +5,7 @@ max_react_rounds 透传。
 
 注意：run_pipeline 内部组装 env + vla + executor + tools + agent。
 为了避免依赖真实 PyBullet 和真实 LLM，我们 monkeypatch：
-- pipeline.runner.PyBulletPandaEnv → FakeEnv
+- pipeline.runner.PyBulletEnv → FakeEnv
 - pipeline.runner.create_vla → MockVLA（真实即可，memory only）
 - pipeline.runner.create_llm → FakeListLLM
 """
@@ -57,7 +57,7 @@ def _make_default_config(
 
 
 class _FakeEnv:
-    """FakeEnv：duck typing 替代 PyBulletPandaEnv，仅满足 pipeline 所需接口。"""
+    """FakeEnv：duck typing 替代 PyBulletEnv，仅满足 pipeline 所需接口。"""
 
     def __init__(self, env_config=None, robot_config=None):
         self.env_config = env_config
@@ -88,13 +88,18 @@ class _FakeEnv:
     def get_obs(self, include_rgb: bool = True):
         return self._obs
 
+    @property
+    def input_spec(self):
+        from env.base import ActionSpec
+        return ActionSpec("task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper"))
+
     def close(self):
         self.close_called = True
 
 
 def _patch_pipeline(monkeypatch, fake_llm_responses=None, mock_agent=None):
     """monkeypatch pipeline.runner 内的依赖为 fake 版本。"""
-    monkeypatch.setattr("pipeline.runner.PyBulletPandaEnv", _FakeEnv)
+    monkeypatch.setattr("pipeline.runner.PyBulletEnv", _FakeEnv)
     if fake_llm_responses is None:
         fake_llm_responses = ["任务已完成。"]
     fake_llm = FakeListLLM(responses=fake_llm_responses)
@@ -330,7 +335,7 @@ def test_pipeline_result_dataclass_fields():
 # ---------- 8. env 工厂注入验证 ----------
 
 def test_run_pipeline_uses_injected_env(monkeypatch):
-    """run_pipeline 内部构造 _FakeEnv 实例（通过 PyBulletPandaEnv 替换）。"""
+    """run_pipeline 内部构造 _FakeEnv 实例（通过 PyBulletEnv 替换）。"""
     _patch_pipeline(monkeypatch)
     monkeypatch.setattr(
         "pipeline.runner.run_agent",
@@ -355,7 +360,7 @@ def test_run_pipeline_passes_env_and_robot_config(monkeypatch):
             captured["robot_config"] = robot_config
             super().__init__(env_config, robot_config)
 
-    monkeypatch.setattr("pipeline.runner.PyBulletPandaEnv", _SpyFakeEnv)
+    monkeypatch.setattr("pipeline.runner.PyBulletEnv", _SpyFakeEnv)
     monkeypatch.setattr(
         "pipeline.runner.run_agent",
         lambda *a, **kw: AgentResult(success=True, trajectory=[], final_answer="ok", total_tool_calls=0),
@@ -366,3 +371,35 @@ def test_run_pipeline_passes_env_and_robot_config(monkeypatch):
 
     assert captured["env_config"] is cfg.env
     assert captured["robot_config"] is cfg.robot
+
+
+# ========== robot-vla-adapter：adapter 注入测试 ==========
+
+
+def test_run_pipeline_injects_adapter_into_action_tool(monkeypatch):
+    """run_pipeline 组装时 ActionTool 收到非 None 的 adapter。"""
+    captured = {}
+
+    class _SpyActionTool:
+        def __init__(self, *a, **kw):
+            captured["tool_kwargs"] = kw
+            captured["adapter"] = kw.get("adapter")
+
+    monkeypatch.setattr("pipeline.runner.PyBulletEnv", _FakeEnv)
+    monkeypatch.setattr(
+        "pipeline.runner.ActionTool",
+        _SpyActionTool,
+    )
+    monkeypatch.setattr("pipeline.runner.ObserveTool", MagicMock)
+    fake_llm = FakeListLLM(responses=["任务已完成。"])
+    monkeypatch.setattr("pipeline.runner.create_llm", lambda cfg: fake_llm)
+    monkeypatch.setattr(
+        "pipeline.runner.create_exact_agent",
+        lambda *a, **kw: MagicMock(),
+    )
+
+    cfg = _make_default_config()
+    run_pipeline(cfg)
+
+    assert captured["adapter"] is not None
+    assert callable(captured["adapter"])

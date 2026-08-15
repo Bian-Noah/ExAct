@@ -17,8 +17,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from env.base import Action7D
-from executor.model.base import BaseVLA
+from env.base import Action7D, ActionSpec
+from executor.model.base import BaseVLA, VLAOutput
 
 # 默认提示模板（与 OpenVLA 官方 README 完全一致）
 DEFAULT_PROMPT_TEMPLATE: str = (
@@ -60,6 +60,16 @@ class OpenVLA(BaseVLA):
         self._vla = None
 
         self._log = logging.getLogger("openvla_vla")
+
+    @property
+    def output_spec(self) -> ActionSpec:
+        """OpenVLA 输出 task 空间 7 维动作（Action7D 语义）。
+
+        spec 是模型的固有属性（unnorm_key 决定量纲），不落入 config。
+        """
+        return ActionSpec(
+            "task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper")
+        )
 
     def _ensure_loaded(self) -> None:
         """首次调用 predict 时加载 processor + model。
@@ -109,7 +119,7 @@ class OpenVLA(BaseVLA):
 
         self._log.info("OpenVLA 懒加载完成")
 
-    def predict(self, image: np.ndarray, instruction: str) -> Action7D:
+    def predict(self, image: np.ndarray, instruction: str) -> VLAOutput:
         """输入图片 + 自然语言指令，输出 7D 动作。
 
         Args:
@@ -160,4 +170,7 @@ class OpenVLA(BaseVLA):
             )
 
         dx, dy, dz, drx, dry, drz, gripper = (float(x) for x in action_arr.tolist())
-        return Action7D(dx, dy, dz, drx, dry, drz, gripper)
+        return VLAOutput(
+            values=Action7D(dx, dy, dz, drx, dry, drz, gripper),
+            spec=self.output_spec,
+        )

@@ -178,7 +178,7 @@ def test_observe_tool_object_info_missing_entirely():
 # ---------- 6. pos 字段 ----------
 
 def test_observe_tool_pos_field_compat():
-    """真实 PyBulletPandaEnv 返回 pos 而非 position。"""
+    """真实 PyBulletEnv 返回 pos 而非 position。"""
     env = FakeEnv({
         "object_info": [
             {"id": 1, "name": "cube", "pos": [0.5, 0.1, 0.1], "quat": [0, 0, 0, 1]},

@@ -1,4 +1,4 @@
-"""PyBulletPandaEnv.__init__ 字段初始化单元测试（iter2-renderer-env-mode）。
+"""PyBulletEnv.__init__ 字段初始化单元测试（iter2-renderer-env-mode）。
 
 覆盖：
 - _mode / _renderer / use_gui 字段在不同 EnvConfig 组合下正确
@@ -15,7 +15,7 @@ import pybullet as p
 import pytest
 
 from config.loader import EnvConfig
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 
 
 # ============================================================
@@ -24,7 +24,7 @@ from env.pybullet_env import PyBulletPandaEnv
 
 def test_init_mode_direct_renderer_cpu():
     cfg = EnvConfig(mode="direct", renderer="cpu")
-    env = PyBulletPandaEnv(env_config=cfg, robot_config=None)
+    env = PyBulletEnv(env_config=cfg, robot_config=None)
     assert env._mode == "direct"
     assert env._renderer == p.ER_TINY_RENDERER
     assert env.use_gui is False
@@ -32,7 +32,7 @@ def test_init_mode_direct_renderer_cpu():
 
 def test_init_mode_gui_renderer_gpu():
     cfg = EnvConfig(mode="gui", renderer="gpu")
-    env = PyBulletPandaEnv(env_config=cfg, robot_config=None)
+    env = PyBulletEnv(env_config=cfg, robot_config=None)
     assert env._mode == "gui"
     assert env._renderer == p.ER_BULLET_HARDWARE_OPENGL
     assert env.use_gui is True
@@ -41,7 +41,7 @@ def test_init_mode_gui_renderer_gpu():
 def test_init_mode_direct_renderer_gpu():
     """mode=direct 但 renderer=gpu 也允许（两者正交）。"""
     cfg = EnvConfig(mode="direct", renderer="gpu")
-    env = PyBulletPandaEnv(env_config=cfg, robot_config=None)
+    env = PyBulletEnv(env_config=cfg, robot_config=None)
     assert env._mode == "direct"
     assert env._renderer == p.ER_BULLET_HARDWARE_OPENGL
     assert env.use_gui is False
@@ -50,7 +50,7 @@ def test_init_mode_direct_renderer_gpu():
 def test_init_mode_gui_renderer_cpu():
     """mode=gui 但 renderer=cpu 也允许。"""
     cfg = EnvConfig(mode="gui", renderer="cpu")
-    env = PyBulletPandaEnv(env_config=cfg, robot_config=None)
+    env = PyBulletEnv(env_config=cfg, robot_config=None)
     assert env._mode == "gui"
     assert env._renderer == p.ER_TINY_RENDERER
     assert env.use_gui is True
@@ -58,7 +58,7 @@ def test_init_mode_gui_renderer_cpu():
 
 def test_init_defaults_auto_renderer():
     """默认 EnvConfig → mode=direct, renderer=auto（平台相关）。"""
-    env = PyBulletPandaEnv()
+    env = PyBulletEnv()
     assert env._mode == "direct"
     assert env.use_gui is False
     # renderer 取决于当前平台：Apple Silicon → TINY，其他 → OPENGL
@@ -77,14 +77,14 @@ def test_init_defaults_auto_renderer():
 
 def test_init_env_config_none():
     """env_config=None 时使用默认值构造。"""
-    env = PyBulletPandaEnv(env_config=None, robot_config=None)
+    env = PyBulletEnv(env_config=None, robot_config=None)
     assert env._mode == "direct"
     assert env.use_gui is False
 
 
 def test_init_both_none():
     """env_config=None + robot_config=None 双默认。"""
-    env = PyBulletPandaEnv()
+    env = PyBulletEnv()
     assert env.env_config is not None
     assert env.robot_config is not None
 
@@ -98,7 +98,7 @@ def test_init_use_gui_true_mode_gui_no_warning():
     cfg = EnvConfig(use_gui=True, mode="gui")
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        env = PyBulletPandaEnv(env_config=cfg, robot_config=None)
+        env = PyBulletEnv(env_config=cfg, robot_config=None)
     assert env.use_gui is True
     assert env._mode == "gui"
     # 一致不触发 deprecation warning
@@ -109,7 +109,7 @@ def test_init_use_gui_true_mode_direct_triggers_warning():
     """use_gui=True + mode=direct 不一致，触发 DeprecationWarning。"""
     cfg = EnvConfig(use_gui=True, mode="direct")
     with pytest.warns(DeprecationWarning, match="use_gui"):
-        env = PyBulletPandaEnv(env_config=cfg, robot_config=None)
+        env = PyBulletEnv(env_config=cfg, robot_config=None)
     # 兼容性：以 use_gui 为准，自动升级为 mode=gui
     assert env.use_gui is True
     assert env._mode == "gui"
@@ -120,7 +120,7 @@ def test_init_use_gui_false_mode_gui_no_warning():
     cfg = EnvConfig(use_gui=False, mode="gui")
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        env = PyBulletPandaEnv(env_config=cfg, robot_config=None)
+        env = PyBulletEnv(env_config=cfg, robot_config=None)
     assert env.use_gui is True  # 由 mode=gui 推导
     assert env._mode == "gui"
     assert not any(issubclass(warning.category, DeprecationWarning) for warning in w)

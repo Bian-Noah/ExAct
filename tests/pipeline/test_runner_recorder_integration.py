@@ -68,7 +68,7 @@ def _make_config(
 
 
 class _FakeEnv:
-    """FakeEnv：duck typing 替代 PyBulletPandaEnv（与 test_runner.py 一致）。"""
+    """FakeEnv：duck typing 替代 PyBulletEnv（与 test_runner.py 一致）。"""
 
     def __init__(self, env_config=None, robot_config=None):
         self.env_config = env_config
@@ -99,13 +99,18 @@ class _FakeEnv:
     def get_obs(self, include_rgb: bool = True):
         return self._obs
 
+    @property
+    def input_spec(self):
+        from env.base import ActionSpec
+        return ActionSpec("task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper"))
+
     def close(self):
         self.close_called = True
 
 
 def _patch_pipeline(monkeypatch, llm_responses=None, agent_result=None, boom=False):
     """monkeypatch pipeline.runner 内的依赖。"""
-    monkeypatch.setattr("pipeline.runner.PyBulletPandaEnv", _FakeEnv)
+    monkeypatch.setattr("pipeline.runner.PyBulletEnv", _FakeEnv)
     if llm_responses is None:
         llm_responses = ["任务已完成。"]
     fake_llm = FakeListLLM(responses=llm_responses)

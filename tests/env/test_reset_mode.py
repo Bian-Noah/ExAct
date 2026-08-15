@@ -1,4 +1,4 @@
-"""PyBulletPandaEnv.reset 连接模式单元测试（iter2-renderer-env-mode）。
+"""PyBulletEnv.reset 连接模式单元测试（iter2-renderer-env-mode）。
 
 覆盖：
 - _resolve_connection_mode 静态方法：direct / gui 映射
@@ -18,7 +18,7 @@ import pybullet as p
 import pytest
 
 from config.loader import EnvConfig
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 
 
 # ============================================================
@@ -26,16 +26,16 @@ from env.pybullet_env import PyBulletPandaEnv
 # ============================================================
 
 def test_resolve_connection_mode_direct():
-    assert PyBulletPandaEnv._resolve_connection_mode("direct") == p.DIRECT
+    assert PyBulletEnv._resolve_connection_mode("direct") == p.DIRECT
 
 
 def test_resolve_connection_mode_gui():
-    assert PyBulletPandaEnv._resolve_connection_mode("gui") == p.GUI
+    assert PyBulletEnv._resolve_connection_mode("gui") == p.GUI
 
 
 def test_resolve_connection_mode_invalid():
     with pytest.raises(ValueError) as exc_info:
-        PyBulletPandaEnv._resolve_connection_mode("headless")
+        PyBulletEnv._resolve_connection_mode("headless")
     assert "headless" in str(exc_info.value)
 
 
@@ -69,7 +69,7 @@ def _make_mock_p():
 
 
 def test_reset_mode_direct_uses_direct_connect():
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="auto"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="auto"))
     mock_p = _make_mock_p()
     with patch("env.pybullet_env.p", mock_p):
         env.reset(task_spec={"objects": []})
@@ -78,7 +78,7 @@ def test_reset_mode_direct_uses_direct_connect():
 
 
 def test_reset_mode_gui_uses_gui_connect():
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="gui", renderer="auto"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="gui", renderer="auto"))
     mock_p = _make_mock_p()
     with patch("env.pybullet_env.p", mock_p):
         env.reset(task_spec={"objects": []})
@@ -88,7 +88,7 @@ def test_reset_mode_gui_uses_gui_connect():
 
 def test_reset_mode_switch_uses_correct_mode():
     """先 direct 后 gui，验证两次 reset 各自使用正确模式。"""
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="auto"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="auto"))
     mock_p = _make_mock_p()
     with patch("env.pybullet_env.p", mock_p):
         env.reset(task_spec={"objects": []})

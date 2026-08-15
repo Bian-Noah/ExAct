@@ -1,4 +1,4 @@
-"""PyBulletPandaEnv.render 渲染器参数单元测试（iter2-renderer-env-mode）。
+"""PyBulletEnv.render 渲染器参数单元测试（iter2-renderer-env-mode）。
 
 覆盖：
 - self._renderer=ER_TINY_RENDERER 时 getCameraImage(renderer=...) 正确传入
@@ -16,7 +16,7 @@ import numpy as np
 import pybullet as p
 
 from config.loader import EnvConfig
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 
 
 def _make_mock_p():
@@ -48,7 +48,7 @@ def _make_rgba_pixels(width: int, height: int, r: int = 128, g: int = 128, b: in
 
 def test_render_uses_tiny_renderer_param(caplog):
     """_renderer=ER_TINY_RENDERER 时 getCameraImage 调用带 renderer=ER_TINY_RENDERER。"""
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
     mock_p = _make_mock_p()
     width, height = 640, 480
     mock_p.getCameraImage.side_effect = (
@@ -70,7 +70,7 @@ def test_render_uses_tiny_renderer_param(caplog):
 
 def test_render_uses_opengl_renderer_param(caplog):
     """_renderer=ER_BULLET_HARDWARE_OPENGL 时同上。"""
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="gpu"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="gpu"))
     mock_p = _make_mock_p()
     width, height = 640, 480
     mock_p.getCameraImage.side_effect = (
@@ -96,7 +96,7 @@ def test_render_uses_opengl_renderer_param(caplog):
 
 def test_render_rgba_to_rgb_reshape():
     """RGBA (H, W, 4) reshape 为 (H, W, 3)。"""
-    env = PyBulletPandaEnv(
+    env = PyBulletEnv(
         env_config=EnvConfig(mode="direct", renderer="cpu", camera_resolution=(320, 240))
     )
     mock_p = _make_mock_p()
@@ -123,7 +123,7 @@ def test_render_rgba_to_rgb_reshape():
 
 def test_render_log_includes_renderer_value(caplog):
     """render() 入口日志包含实际 renderer 常量值。"""
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
     mock_p = _make_mock_p()
     width, height = 640, 480
     mock_p.getCameraImage.side_effect = (

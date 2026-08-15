@@ -2,13 +2,13 @@
 import sys
 sys.path.insert(0, "src")
 
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 from config.loader import load_config
 from executor import Executor
 from executor.model.mock.mock_vla import MockVLA
 
 config = load_config("configs/default.yaml")
-env = PyBulletPandaEnv(env_config=config.env, robot_config=config.robot)
+env = PyBulletEnv(env_config=config.env, robot_config=config.robot)
 env.reset(task_spec={"objects": [dict(obj) for obj in config.task.objects]}, seed=0)
 
 vla = MockVLA()

@@ -9,14 +9,14 @@ import numpy as np
 import pytest
 
 from config.loader import EnvConfig
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 from tools.observe import ObserveTool
 
 
 @pytest.mark.slow
 def test_observe_gets_rgb_end_to_end():
     """env.reset + ObserveTool._run() 真实链路 → obs['rgb'] shape 正确。"""
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
     try:
         env.reset(task_spec={"objects": []})
         tool = ObserveTool(env=env)

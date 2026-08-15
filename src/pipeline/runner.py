@@ -18,7 +18,7 @@ from agents.core import AgentResult
 from agents.agent import create_exact_agent, run_agent
 from agents.llm_factory import create_llm
 from config.loader import AppConfig
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 from executor import Executor
 from executor.model.factory import create_vla
 from experiment.recorder import (
@@ -27,6 +27,7 @@ from experiment.recorder import (
     set_recorder,
 )
 from tools import ActionTool, ObserveTool
+from utils.adapter import get_adapter
 from utils.image_store import create_image_store
 from utils.logging import setup_logging
 
@@ -112,7 +113,7 @@ def run_pipeline(
     )
 
     # 3. 组装 env
-    env = PyBulletPandaEnv(
+    env = PyBulletEnv(
         env_config=config.env,
         robot_config=config.robot,
     )
@@ -136,10 +137,11 @@ def run_pipeline(
         # 7. 构造 ImageStore（迭代 5：observe 工具需要它来回传 image content block）
         image_store = create_image_store(config.image_store)
 
-        # 8. 组装 tools（ObserveTool 注入 image_store；ActionTool 契约不变）
+        # 8. 组装 tools（ObserveTool 注入 image_store；ActionTool 注入 adapter）
+        adapter = get_adapter(vla.output_spec, env.input_spec)
         tools = [
             ObserveTool(env=env, image_store=image_store),
-            ActionTool(env=env, executor=executor),
+            ActionTool(env=env, executor=executor, adapter=adapter),
         ]
 
         # 8. 组装 agent（max_react_rounds / max_tool_calls 从 AgentConfig 读取）
@@ -150,8 +152,12 @@ def run_pipeline(
             max_tool_calls=config.agent.max_tool_calls,
         )
 
-        # 9. 执行 agent
-        agent_result = run_agent(agent, user_goal)
+        # 9. 执行 agent（max_react_rounds 透传，决定 recursion_limit）
+        agent_result = run_agent(
+            agent,
+            user_goal,
+            max_react_rounds=config.agent.max_react_rounds,
+        )
 
         # env_closed 暂记 False，finally 中 mutate 为 True
         result = PipelineResult(agent_result=agent_result, env_closed=False)

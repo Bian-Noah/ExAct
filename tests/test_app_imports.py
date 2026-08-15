@@ -20,8 +20,8 @@ def test_app_dependencies_importable():
     from config import load_config
     assert callable(load_config)
 
-    from env.pybullet_env import PyBulletPandaEnv
-    assert PyBulletPandaEnv.__name__ == "PyBulletPandaEnv"
+    from env.pybullet_env import PyBulletEnv
+    assert PyBulletEnv.__name__ == "PyBulletEnv"
 
     from executor import Executor, MockVLA
     assert Executor.__name__ == "Executor"

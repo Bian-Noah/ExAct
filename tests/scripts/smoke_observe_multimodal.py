@@ -55,12 +55,12 @@ def main() -> int:
 
     # 先调用一次 observe 工具（确保有 image 落盘）
     from tools import ObserveTool
-    from env.pybullet_env import PyBulletPandaEnv
+    from env.pybullet_env import PyBulletEnv
     from config import EnvConfig, RobotConfig
     from utils.image_store import create_image_store
 
     print("\n[Step 1] 真实 env + observe 工具调用")
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="cpu"),
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="cpu"),
                             robot_config=RobotConfig())
     env.reset(task_spec={"objects": [{"type": "cube", "pos": [0.5, 0, 0.1], "color": "red"}]}, seed=0)
     image_store = create_image_store(cfg.image_store)

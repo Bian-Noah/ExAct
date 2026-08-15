@@ -1,14 +1,18 @@
 """executor/__init__.py 主循环单元测试。
 
-使用 FakeEnv（内存 mock）替代 PyBulletPandaEnv，验证 Executor 主循环的
+使用 FakeEnv（内存 mock）替代 PyBulletEnv，验证 Executor 主循环的
 两种退出分支、ExecResult 字段正确性、异常透传。
 """
 
 import numpy as np
 import pytest
 
-from env.base import BaseEnv
+from env.base import ActionSpec, BaseEnv
 from executor import Executor, ExecResult, MockVLA
+
+
+def _task_spec() -> ActionSpec:
+    return ActionSpec("task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper"))
 
 
 # ========== FakeEnv 测试辅助类 ==========
@@ -51,6 +55,10 @@ class FakeEnv(BaseEnv):
     def close(self):
         pass
 
+    @property
+    def input_spec(self):
+        return _task_spec()
+
 
 class FakeEnvWithEePosControl(BaseEnv):
     """可控制 ee_pos 随步数推进的 FakeEnv。
@@ -92,6 +100,10 @@ class FakeEnvWithEePosControl(BaseEnv):
     def close(self):
         pass
 
+    @property
+    def input_spec(self):
+        return _task_spec()
+
     def _make_obs(self):
         return {
             "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
@@ -124,6 +136,10 @@ class FakeEnvRaisingStep(BaseEnv):
 
     def close(self):
         pass
+
+    @property
+    def input_spec(self):
+        return _task_spec()
 
 
 # ========== Executor 主循环测试 ==========
@@ -267,6 +283,10 @@ class FakeEnvWithTargetApproach(BaseEnv):
     def close(self):
         pass
 
+    @property
+    def input_spec(self):
+        return _task_spec()
+
     def _make_obs(self):
         return {
             "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
@@ -319,3 +339,83 @@ def test_executor_without_target_pos_uses_fallback():
     assert result.steps == 1
     assert result.success is True
     assert "兜底" in result.message
+
+
+# ========== robot-vla-adapter：adapter 参数测试 ==========
+
+_ADAPTER_TEST_OBS = {
+    "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+    "ee_pos": (0.0, 0.0, 0.0),
+    "object_info": [],
+    "state_desc": "adapter test",
+}
+
+
+def test_run_action_with_adapter_transforms_before_step():
+    """run_action(adapter=...) → 循环内先转换后 step。"""
+    from executor.model.base import VLAOutput
+
+    observed = {}
+
+    def capturing_env(action):
+        observed["step_action"] = action
+        return _ADAPTER_TEST_OBS, 0.0, False, {}
+
+    env = FakeEnv([])
+    env.step = capturing_env
+    env.get_obs = lambda include_rgb=True: _ADAPTER_TEST_OBS
+
+    vla = MockVLA(seed=0)
+    executor = Executor(vla, max_steps=1)
+
+    def fake_adapter(vla_output, env):
+        observed["adapter_received"] = vla_output
+        return "TRANSFORMED"
+
+    result = executor.run_action(env, "move", done_criteria="unknown", adapter=fake_adapter)
+    assert observed["adapter_received"] is not None
+    assert isinstance(observed["adapter_received"], VLAOutput)
+    assert observed["step_action"] == "TRANSFORMED"
+
+
+def test_run_action_adapter_none_direct():
+    """run_action(adapter=None) → vla 输出原样 step（直通）。"""
+    observed = {}
+
+    def capturing_env(action):
+        observed["step_action"] = action
+        return _ADAPTER_TEST_OBS, 0.0, False, {}
+
+    env = FakeEnv([])
+    env.step = capturing_env
+    env.get_obs = lambda include_rgb=True: _ADAPTER_TEST_OBS
+
+    vla = MockVLA(seed=0)
+    executor = Executor(vla, max_steps=1)
+    result = executor.run_action(env, "move", done_criteria="unknown", adapter=None)
+    # None 直通：vla_output（VLAOutput）原样喂给 env.step
+    from executor.model.base import VLAOutput
+    assert isinstance(observed["step_action"], VLAOutput)
+
+
+def test_run_action_identity_adapter_unwraps_values():
+    """adapter=identity → VLAOutput 解包为 Action7D 喂给 env.step。"""
+    from env.base import Action7D
+    from executor.model.base import VLAOutput
+    from utils.adapter.adapters.identity import identity_transform
+
+    observed = {}
+
+    def capturing_env(action):
+        observed["step_action"] = action
+        return _ADAPTER_TEST_OBS, 0.0, False, {}
+
+    env = FakeEnv([])
+    env.step = capturing_env
+    env.get_obs = lambda include_rgb=True: _ADAPTER_TEST_OBS
+
+    vla = MockVLA(seed=0)
+    executor = Executor(vla, max_steps=1)
+    executor.run_action(env, "move", done_criteria="unknown", adapter=identity_transform)
+    assert isinstance(observed["step_action"], Action7D)
+    assert not isinstance(observed["step_action"], VLAOutput)

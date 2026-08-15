@@ -74,10 +74,15 @@ class _FakeEnvWithRGB:
     def close(self):
         self.close_called = True
 
+    @property
+    def input_spec(self):
+        from env.base import ActionSpec
+        return ActionSpec("task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper"))
+
 
 def _patch_pipeline(monkeypatch, llm_response="任务完成"):
     """monkeypatch pipeline 依赖。"""
-    monkeypatch.setattr("pipeline.runner.PyBulletPandaEnv", _FakeEnvWithRGB)
+    monkeypatch.setattr("pipeline.runner.PyBulletEnv", _FakeEnvWithRGB)
     fake_llm = FakeListLLM(responses=[llm_response])
     monkeypatch.setattr("pipeline.runner.create_llm", lambda cfg: fake_llm)
 
@@ -291,7 +296,7 @@ def test_e2e_observe_calls_produce_pngs(tmp_path: Path, monkeypatch):
         "pipeline.runner.create_llm",
         lambda cfg: _ObserveLLM(),
     )
-    monkeypatch.setattr("pipeline.runner.PyBulletPandaEnv", _FakeEnvWithRGB)
+    monkeypatch.setattr("pipeline.runner.PyBulletEnv", _FakeEnvWithRGB)
 
     # Patch create_exact_agent 为返回的 agent 在被 run_agent 调用时执行 LLM.invoke
     # 这里简化：让 agent 直接调 observe 工具一次
@@ -357,7 +362,7 @@ def test_e2e_observe_calls_produce_pngs(tmp_path: Path, monkeypatch):
 
 def test_e2e_pipeline_exception_finish_log_present(tmp_path: Path, monkeypatch):
     """pipeline 异常时 experiment.log 仍含 Pipeline finished + ERROR 日志。"""
-    monkeypatch.setattr("pipeline.runner.PyBulletPandaEnv", _FakeEnvWithRGB)
+    monkeypatch.setattr("pipeline.runner.PyBulletEnv", _FakeEnvWithRGB)
     monkeypatch.setattr(
         "pipeline.runner.create_llm",
         lambda cfg: FakeListLLM(responses=["x"]),

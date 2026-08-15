@@ -74,6 +74,24 @@ class ActionTool(BaseTool):
     args_schema: Type[BaseModel] = ActionInput
     env: Any = None
     executor: Any = None
+    adapter: Any = None  # 注入：get_adapter(...) 返回的转换函数；None 时 _ensure_adapter 兜底
+
+    def _ensure_adapter(self, vla, env) -> Any:
+        """确保 self.adapter 非 None。
+
+        已注入（runner 正常接线）→ 直接返回；
+        未注入 → 按 spec 自动构造并 print 警告（漏接兜底，但让问题可见）。
+        """
+        if self.adapter is not None:
+            return self.adapter
+        from utils.adapter import get_adapter
+        self.adapter = get_adapter(vla.output_spec, env.input_spec)
+        print(
+            "[ActionTool] ⚠️ 未注入 adapter，已自动按 spec 构造并临时使用: "
+            f"{vla.output_spec.space} → {env.input_spec.space}。"
+            "建议在 runner 组装时显式接线。"
+        )
+        return self.adapter
 
     def _run(self, instruction: str) -> str:
         """执行动作指令。
@@ -92,10 +110,14 @@ class ActionTool(BaseTool):
         # 尝试从指令中解析目标坐标
         target_pos = parse_target_pos(instruction)
 
+        # ★ fallback 入口：确保 adapter 非 None（正常由 runner 注入，漏接自动构造）
+        adapter = self._ensure_adapter(self.executor.vla, self.env)
+
         result = self.executor.run_action(
             self.env, instruction,
             done_criteria="reached",
             target_pos=target_pos,
+            adapter=adapter,
         )
         _log.info(f"action 调用完成 success={result.success}")
         return result.message

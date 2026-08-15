@@ -12,13 +12,13 @@ import time
 import pytest
 
 from config.loader import EnvConfig
-from env.pybullet_env import PyBulletPandaEnv
+from env.pybullet_env import PyBulletEnv
 
 
 @pytest.mark.slow
 def test_render_cpu_baseline_timing(caplog):
     """CPU 模式下 5 次 render() 耗时基线（warmup 1 次 + 4 次平均）。"""
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
     try:
         env.reset(task_spec={"objects": []})
         # warmup

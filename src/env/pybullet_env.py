@@ -1,16 +1,14 @@
-"""PyBullet Panda 仿真环境实现。
+"""通用 PyBullet 仿真环境实现（robot-vla-adapter）。
 
-封装 PyBullet 物理引擎，提供 Franka Panda 机械臂的仿真环境。
-运行方式：PYTHONPATH=src python src/app.py
+封装 PyBullet 物理引擎，提供通用仿真能力（连接/渲染/相机/物体/观测），
+机器人特化逻辑（IK/关节驱动/夹爪）委托给自构造的 Robot 对象。
 
-iter1-pipeline-refactor-config 后：
-- 构造签名改为 `PyBulletPandaEnv(env_config: EnvConfig, robot_config: RobotConfig)`
-- 内部 `ARM_JOINT_INDICES` / `EE_LINK_INDEX` / `FINGER_JOINT_INDICES` 改为从 `robot_config` 读取
-- 模块级常量保留作 `RobotConfig` 默认值的别名引用
-
-iter2-renderer-env-mode 新增：
-- 静态方法 `_resolve_renderer()` 解析 renderer 配置字符串为 pybullet 渲染器常量
-- `__init__` 解析 `self._renderer` / `self._mode` / `use_gui` 字段
+robot-vla-adapter 重构：
+- 类名 `PyBulletPandaEnv` → `PyBulletEnv`（通用化）
+- `__init__` 内 `self.robot = build_robot(robot_config)` 自我构造 Robot 注入
+- `step()` 委托 `self.robot.step_action(action, robot_id, client_id)`
+- URDF 加载走顶层 `robot_config.urdf_path`；索引走 `robot_config.panda.*`
+- 调用方签名不变：`PyBulletEnv(env_config, robot_config)`，机器人类型对外透明
 """
 
 import platform
@@ -22,28 +20,32 @@ import pybullet as p
 import pybullet_data
 
 from config.loader import EnvConfig, RobotConfig
-from env.base import BaseEnv, Action7D
+from env.base import BaseEnv, Action7D, ActionSpec
+from env.robot import build_robot
 from utils.logging import setup_logging
 
 logger = setup_logging(__name__)
 
 # Panda 机械臂 7 个关节索引（模块级别名，引用 RobotConfig 默认值）
-ARM_JOINT_INDICES = tuple(RobotConfig().arm_joint_indices)
+ARM_JOINT_INDICES = tuple(RobotConfig().panda.arm_joint_indices)
 # 末端执行器 link 索引（panda_hand）
-EE_LINK_INDEX = RobotConfig().ee_link_index
+EE_LINK_INDEX = RobotConfig().panda.ee_link_index
 # 夹爪关节索引
-FINGER_JOINT_INDICES = tuple(RobotConfig().finger_joint_indices)
+FINGER_JOINT_INDICES = tuple(RobotConfig().panda.finger_joint_indices)
 
 # iter2-renderer-env-mode：renderer 配置合法值
 _RENDERER_VALID_VALUES: frozenset[str] = frozenset({"auto", "cpu", "gpu"})
 
 
-class PyBulletPandaEnv(BaseEnv):
-    """基于 PyBullet 的 Franka Panda 仿真环境。
+class PyBulletEnv(BaseEnv):
+    """基于 PyBullet 的通用仿真环境。
+
+    连接/渲染/相机/物体/观测为所有机器人公用；机器人的 step 特化
+    由 self.robot（build_robot 按 config.type 构造）承担。
 
     Args:
-        env_config: 环境配置（use_gui / camera_resolution）。
-        robot_config: 机械臂配置（URDF 路径 / 关节索引常量 / 底座位置）。
+        env_config: 环境配置（mode / renderer / camera_resolution）。
+        robot_config: 机器人配置（type + urdf_path 顶层 + 特化配置）。
     """
 
     def __init__(
@@ -59,6 +61,8 @@ class PyBulletPandaEnv(BaseEnv):
 
         self.env_config = env_config
         self.robot_config = robot_config
+        # ★ robot-vla-adapter：自我构造 Robot 对象注入（调用方零改动）
+        self.robot = build_robot(robot_config)
         # iter2-renderer-env-mode：解析渲染器常量与连接模式
         self._renderer = self._resolve_renderer(env_config.renderer)
         self._mode = env_config.mode
@@ -228,63 +232,13 @@ class PyBulletPandaEnv(BaseEnv):
     def step(self, action: Action7D) -> tuple[dict, float, bool, dict]:
         """执行一步动作。
 
-        通过逆运动学计算关节角度，并推进物理仿真。
+        robot-vla-adapter：委托给 self.robot.step_action（IK/关节/夹爪特化）。
 
         Returns:
             (obs, reward, done, info) — 当前 reward=0.0，done=False，info={}。
         """
         self._ensure_connected()
-        # 关节索引常量从 robot_config 读取（兼容字段名）
-        arm_indices = self.robot_config.arm_joint_indices
-        ee_link_idx = self.robot_config.ee_link_index
-        finger_indices = self.robot_config.finger_joint_indices
-
-        # 获取当前末端位置
-        link_state = p.getLinkState(
-            self._robot_id,
-            ee_link_idx,
-            physicsClientId=self._client_id,
-        )
-        current_ee = link_state[0]
-
-        # 计算目标位置（当前位置 + 位移增量）
-        target_ee = [
-            current_ee[0] + action.dx,
-            current_ee[1] + action.dy,
-            current_ee[2] + action.dz,
-        ]
-
-        # 逆运动学求解关节角度
-        joint_angles = p.calculateInverseKinematics(
-            self._robot_id,
-            ee_link_idx,
-            target_ee,
-            physicsClientId=self._client_id,
-        )
-
-        # 控制机械臂关节
-        p.setJointMotorControlArray(
-            self._robot_id,
-            arm_indices,
-            p.POSITION_CONTROL,
-            targetPositions=joint_angles[:len(arm_indices)],
-            physicsClientId=self._client_id,
-        )
-
-        # 控制夹爪（gripper: 0=闭, 1=开 → 关节角度 0~0.04）
-        gripper_pos = 0.04 * action.gripper
-        p.setJointMotorControlArray(
-            self._robot_id,
-            finger_indices,
-            p.POSITION_CONTROL,
-            targetPositions=[gripper_pos, gripper_pos],
-            physicsClientId=self._client_id,
-        )
-
-        # 推进物理仿真
-        for _ in range(10):
-            p.stepSimulation(physicsClientId=self._client_id)
-
+        self.robot.step_action(action, self._robot_id, self._client_id)
         return self.get_obs(), 0.0, False, {}
 
     def render(self) -> np.ndarray:
@@ -368,7 +322,7 @@ class PyBulletPandaEnv(BaseEnv):
             obs dict，包含 rgb/object_info/ee_pos/state_desc。
         """
         self._ensure_connected()
-        ee_link_idx = self.robot_config.ee_link_index
+        ee_link_idx = self.robot_config.panda.ee_link_index
         # 末端位置
         link_state = p.getLinkState(
             self._robot_id,
@@ -421,3 +375,10 @@ class PyBulletPandaEnv(BaseEnv):
                 pass  # 已断连，忽略
             finally:
                 self._client_id = -1
+
+    @property
+    def input_spec(self) -> ActionSpec:
+        """Panda env 消费 task 空间 7 维动作（Action7D 语义）。"""
+        return ActionSpec(
+            "task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper")
+        )

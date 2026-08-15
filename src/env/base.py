@@ -1,12 +1,51 @@
 """环境抽象基类模块。
 
-定义 Action7D 动作数据结构和 BaseEnv 抽象环境接口。
+定义 Action7D 动作数据结构、ActionSpec 动作语义规格和 BaseEnv 抽象环境接口。
 """
 
 from abc import ABC, abstractmethod
-from typing import NamedTuple
+from dataclasses import dataclass, field
+from typing import Any, NamedTuple
 
 import numpy as np
+
+# ActionSpec.space 合法值
+_ACTION_SPACES: frozenset[str] = frozenset({"task", "joint"})
+
+
+@dataclass(frozen=True)
+class ActionSpec:
+    """动作空间语义规格（适配层分派依据）。
+
+    Attributes:
+        space: 动作空间，"task"（任务空间）| "joint"（关节空间）。
+        components: 每维语义名，如 ("dx","dy","dz","drx","dry","drz","gripper")。
+        dim: 派生字段，= len(components)。
+        gripper_index: 派生字段，含 "gripper" 的维索引；无夹爪则 None。
+    """
+
+    space: str
+    components: tuple[str, ...]
+    dim: int = field(init=False)
+    gripper_index: int | None = field(init=False)
+
+    def __post_init__(self) -> None:
+        """校验 space/components 合法性，派生 dim 与 gripper_index。"""
+        if self.space not in _ACTION_SPACES:
+            raise ValueError(
+                f"space 必须为 {sorted(_ACTION_SPACES)} 之一，得到 {self.space!r}"
+            )
+        seen: set[str] = set()
+        for c in self.components:
+            if not c:
+                raise ValueError("components 不能包含空串")
+            # "joint" 是关节空间的占位语义名，允许多维重复；其余语义名必须互异
+            if c != "joint" and c in seen:
+                raise ValueError(f"components 不能包含重复元素: {c!r}")
+            seen.add(c)
+        object.__setattr__(self, "dim", len(self.components))
+        gripper_idxs = [i for i, c in enumerate(self.components) if c == "gripper"]
+        object.__setattr__(self, "gripper_index", gripper_idxs[0] if gripper_idxs else None)
 
 
 class Action7D(NamedTuple):
@@ -28,7 +67,7 @@ class Action7D(NamedTuple):
 class BaseEnv(ABC):
     """仿真环境抽象基类。
 
-    所有具体环境后端（如 PyBulletPandaEnv）需继承此类并实现全部抽象方法。
+    所有具体环境后端（如 PyBulletEnv）需继承此类并实现全部抽象方法。
     统一的观测字典契约：
         - rgb: np.ndarray (H,W,3) uint8，相机 RGB 图像
         - object_info: list[dict]，每个物体 {"id":int, "name":str, "pos":[x,y,z], "quat":[x,y,z,w]}
@@ -80,3 +119,26 @@ class BaseEnv(ABC):
     @abstractmethod
     def close(self) -> None:
         """释放所有资源，断开仿真连接。"""
+
+    # ---- 动作语义声明（robot-vla-adapter 新增） ----
+
+    @property
+    @abstractmethod
+    def input_spec(self) -> ActionSpec:
+        """声明该 env 消费的动作 spec（空间/维度/每维含义）。"""
+
+    def ik(self, target_pos: tuple) -> Any:
+        """可选能力：任务空间目标位置 → 关节角度（task→joint adapter 依赖）。
+
+        Raises:
+            NotImplementedError: 该机器人未实现 ik（任务空间→关节空间）。
+        """
+        raise NotImplementedError("该机器人未实现 ik（任务空间→关节空间）")
+
+    def fk(self, joint_angles: Any) -> tuple:
+        """可选能力：关节角度 → 任务空间目标位置。
+
+        Raises:
+            NotImplementedError: 该机器人未实现 fk（关节空间→任务空间）。
+        """
+        raise NotImplementedError("该机器人未实现 fk（关节空间→任务空间）")

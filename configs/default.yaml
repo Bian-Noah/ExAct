@@ -33,11 +33,13 @@ explore:
   enabled: false                  # 第五步再启用
 
 robot:
-  urdf_path: "franka_panda/panda.urdf"
+  type: panda                     # 机器人类型分派（env/robot/<type>/ 下加载对应 Robot）
+  urdf_path: "franka_panda/panda.urdf"   # 顶层公共字段（所有机器人通用）
   base_position: [0.0, 0.0, 0.0]
-  arm_joint_indices: [0, 1, 2, 3, 4, 5, 6]
-  ee_link_index: 11
-  finger_joint_indices: [9, 10]
+  panda:                          # Panda 特化配置（robot.type=panda 时生效）
+    arm_joint_indices: [0, 1, 2, 3, 4, 5, 6]
+    ee_link_index: 11
+    finger_joint_indices: [9, 10]
 
 task:
   default_user_goal: "把机械臂移到红色方块上方"

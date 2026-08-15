@@ -10,8 +10,8 @@ import random
 
 import numpy as np
 
-from env.base import Action7D
-from executor.model.base import BaseVLA
+from env.base import Action7D, ActionSpec
+from executor.model.base import BaseVLA, VLAOutput
 
 
 class MockVLA(BaseVLA):
@@ -25,6 +25,13 @@ class MockVLA(BaseVLA):
         """
         self.seed = seed
 
+    @property
+    def output_spec(self) -> ActionSpec:
+        """Mock 输出 task 空间 7 维动作（Action7D 语义）。"""
+        return ActionSpec(
+            "task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper")
+        )
+
     def predict(self, image: np.ndarray, instruction: str) -> Action7D:
         """生成伪随机 7D 动作。
 
@@ -36,7 +43,7 @@ class MockVLA(BaseVLA):
             instruction: 用于哈希生成种子，影响输出。
 
         Returns:
-            Action7D 实例。
+            VLAOutput：values 为 Action7D 实例，spec 为 task 空间 7 维。
         """
         # 基于 instruction 哈希与 seed 组合生成种子，保证可复现
         instruction_bytes = instruction.encode("utf-8")
@@ -55,4 +62,7 @@ class MockVLA(BaseVLA):
         drz = rng.uniform(-0.05, 0.05)
         gripper = 0.5
 
-        return Action7D(dx, dy, dz, drx, dry, drz, gripper)
+        return VLAOutput(
+            values=Action7D(dx, dy, dz, drx, dry, drz, gripper),
+            spec=self.output_spec,
+        )

@@ -25,9 +25,9 @@ from tools import ObserveTool  # noqa: E402
 
 
 def main() -> int:
-    from env.pybullet_env import PyBulletPandaEnv
+    from env.pybullet_env import PyBulletEnv
 
-    env = PyBulletPandaEnv(env_config=EnvConfig(mode="direct", renderer="cpu"),
+    env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="cpu"),
                             robot_config=RobotConfig())
     env.reset(task_spec={"objects": [{"type": "cube", "pos": [0.5, 0, 0.1], "color": "red"}]}, seed=0)
 

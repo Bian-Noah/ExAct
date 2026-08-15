@@ -63,6 +63,7 @@ class Executor:
         instruction: str,
         done_criteria: str,
         target_pos: tuple | None = None,
+        adapter=None,
     ) -> ExecResult:
         """循环调 VLA 驱动 env，直到完成或超时。
 
@@ -74,12 +75,19 @@ class Executor:
         信息（shape / dtype / 与 obs rgb 的一致性），用于确认 VLA 已能从 env
         拿到图——链路通。
 
+        robot-vla-adapter：新增可选 adapter 参数。adapter 在 vla.predict 之后、
+        env.step 之前执行，把 VLA 输出（VLAOutput）转换为 env 原生动作。
+        adapter=None 时直通（VLA 输出原样喂给 env）——executor 保持纯净，
+        不负责 adapter 的构造/兜底（那归 ActionTool._ensure_adapter）。
+
         Args:
-            env: BaseEnv 实例（PyBulletPandaEnv / FakeEnv 等）。
+            env: BaseEnv 实例（PyBulletEnv / FakeEnv 等）。
             instruction: 自然语言指令字符串。
             done_criteria: 完成标准字符串（如 "reached" / "grasped"）。
             target_pos: 目标位置 (x, y, z)。reached 规则下用于判断 ee_pos
                 是否到达目标位置；未提供时 check_done 回退到前后位移兜底逻辑。
+            adapter: 转换函数 `adapter(vla_output, env) -> env 原生动作`；
+                None 时直通（不构造、不提示）。
 
         Returns:
             ExecResult dataclass。
@@ -95,7 +103,9 @@ class Executor:
         for step in range(self.max_steps):
             obs_before = env.get_obs()
             vla_input = build_vla_input(obs_before, instruction)
-            action = self.vla.predict(vla_input["image"], instruction)
+            vla_output = self.vla.predict(vla_input["image"], instruction)
+            # ★ adapter 插入点：VLA 输出 → env 原生动作
+            action = adapter(vla_output, env) if adapter is not None else vla_output
 
             # Iteration 6：链路验证 print（仅第一步）
             if step == 0:

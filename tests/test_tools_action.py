@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from env.base import BaseEnv
+from env.base import ActionSpec, BaseEnv
 from executor import Executor, MockVLA
 from tools.action import ActionInput, ActionTool
 
@@ -54,6 +54,10 @@ class FakeEnvWithEePosControl(BaseEnv):
 
     def close(self):
         pass
+
+    @property
+    def input_spec(self):
+        return ActionSpec("task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper"))
 
     def _make_obs(self):
         import numpy as np

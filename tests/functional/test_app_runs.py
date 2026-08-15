@@ -1,7 +1,7 @@
 """功能场景 H：app.py 端到端跑通。
 
 组合 monkeypatch：
-- pipeline.runner.PyBulletPandaEnv → FakeEnv
+- pipeline.runner.PyBulletEnv → FakeEnv
 - pipeline.runner.create_llm → FakeListLLM
 - pipeline.runner.create_exact_agent → 返回 mock agent（避免 bind_tools 调用）
 - pipeline.runner.run_agent → 返回 AgentResult
@@ -39,6 +39,11 @@ class _FakeEnv:
     def _obs(self):
         return {"ee_pos": (0, 0, 0.5), "object_info": [], "state_desc": "fake", "rgb": None}
 
+    @property
+    def input_spec(self):
+        from env.base import ActionSpec
+        return ActionSpec("task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper"))
+
     def close(self):
         self.close_called = True
 
@@ -63,7 +68,7 @@ def test_app_py_runs_end_to_end():
         )
 
     import pipeline.runner as R
-    with patch.object(R, "PyBulletPandaEnv", _FakeEnv), \
+    with patch.object(R, "PyBulletEnv", _FakeEnv), \
          patch.object(R, "create_llm", return_value=FakeListLLM(responses=["ok"])), \
          patch.object(R, "create_exact_agent", side_effect=fake_create_exact_agent), \
          patch.object(R, "run_agent", side_effect=fake_run_agent):

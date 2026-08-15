@@ -34,8 +34,8 @@ from typing import Any, Optional
 import numpy as np
 import torch
 
-from env.base import Action7D
-from executor.model.base import BaseVLA
+from env.base import Action7D, ActionSpec
+from executor.model.base import BaseVLA, VLAOutput
 
 # 支持的 policy 类型（与 lerobot.policies 子模块名一致；pi0fast 在 0.6+ 改名为 pi0_fast）
 SUPPORTED_POLICY_TYPES: frozenset[str] = frozenset(
@@ -107,6 +107,14 @@ class LeRobotVLA(BaseVLA):
         self._resolved_state_key: Optional[str] = None
 
         self._log = logging.getLogger("lerobot_vla")
+
+    @property
+    def output_spec(self) -> ActionSpec:
+        """LeRobot 输出 joint 空间动作，维度由 action_dim 决定（不硬编码 7）。
+
+        spec 是模型的固有属性（训练数据集决定动作维度），不落入 config。
+        """
+        return ActionSpec("joint", ("joint",) * self.action_dim)
 
     # ------------------------------------------------------------------
     # 内部：policy 类型判定
@@ -477,7 +485,7 @@ class LeRobotVLA(BaseVLA):
     # BaseVLA.predict
     # ------------------------------------------------------------------
 
-    def predict(self, image: np.ndarray, instruction: str) -> Action7D:
+    def predict(self, image: np.ndarray, instruction: str) -> VLAOutput:
         """输入图片 + 自然语言指令，输出 7D 动作。
 
         推理链路（官方管线）：
@@ -549,4 +557,7 @@ class LeRobotVLA(BaseVLA):
             first6 = action_np[:6].astype(float).tolist()
             dx, dy, dz, drx, dry, drz = first6
             gripper = self._default_gripper
-        return Action7D(dx, dy, dz, drx, dry, drz, gripper)
+        return VLAOutput(
+            values=Action7D(dx, dy, dz, drx, dry, drz, gripper),
+            spec=self.output_spec,
+        )

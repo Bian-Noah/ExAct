@@ -100,13 +100,33 @@ class ExploreConfig:
 
 
 @dataclass
-class RobotConfig:
-    """机械臂配置（URDF 路径 + 关节索引常量）。"""
-    urdf_path: str = "franka_panda/panda.urdf"
-    base_position: tuple[float, float, float] = (0.0, 0.0, 0.0)
+class PandaRobotConfig:
+    """Panda 机器人特化配置（仅 robot.type == "panda" 时生效）。
+
+    Attributes:
+        arm_joint_indices: 7 个机械臂关节索引。
+        ee_link_index: 末端执行器 link 索引（panda_hand）。
+        finger_joint_indices: 夹爪关节索引。
+    """
     arm_joint_indices: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6)
     ee_link_index: int = 11
     finger_joint_indices: tuple[int, ...] = (9, 10)
+
+
+@dataclass
+class RobotConfig:
+    """机械臂配置。
+
+    robot-vla-adapter 重构：
+      - type: 顶层类型分派字段（决定加载 env/robot/<type>/ 下哪个 Robot）。
+      - urdf_path / base_position: 保留顶层公共字段（所有机器人通用）。
+      - panda: Panda 特化嵌套配置（arm_joint_indices / ee_link_index /
+        finger_joint_indices 迁入此处，带默认值 fallback）。
+    """
+    type: str = "panda"
+    urdf_path: str = "franka_panda/panda.urdf"
+    base_position: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    panda: PandaRobotConfig = field(default_factory=PandaRobotConfig)
 
 
 @dataclass
@@ -219,6 +239,21 @@ def _from_dict(data: dict, cls: Type[T]) -> T:
 
     cls_fields = {f.name: f for f in fields(cls)}
     resolved_types = _resolve_field_types(cls)
+
+    # robot-vla-adapter 兼容：RobotConfig 旧平铺格式（arm_joint_indices 等在顶层）
+    # 合并进 panda 特化嵌套块，并从顶层移除，避免未知字段警告 + 丢配置。
+    if cls is RobotConfig:
+        legacy_keys = ("arm_joint_indices", "ee_link_index", "finger_joint_indices")
+        if any(k in data for k in legacy_keys):
+            panda_data = dict(data.get("panda", {}) or {})
+            new_data = dict(data)
+            for k in legacy_keys:
+                if k in data:
+                    panda_data.setdefault(k, data[k])
+                    new_data.pop(k, None)
+            new_data["panda"] = panda_data
+            data = new_data
+
     # 未知字段警告
     for k in data.keys():
         if k not in cls_fields:
