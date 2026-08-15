@@ -2,14 +2,18 @@
 
 注册表键为 (vla_space, env_space)：
   - ("joint", "joint"): joint_to_joint_transform（同空间数值映射）
-  - ("task",  "joint"): task_to_joint_transform（调 env.ik）
+  - ("task",  "joint"): task_to_joint_hardcode_transform（硬编码前 N 维直通）
   - ("task",  "task"):  identity_transform（同空间直通，Mock→Panda）
+
+输入约定：各 adapter 接收 executor 统一解包后的裸动作值（不含 VLAOutput 包装）。
 """
 
 from env.base import ActionSpec
 from utils.adapter.adapters.identity import identity_transform
 from utils.adapter.adapters.joint_to_joint import joint_to_joint_transform
-from utils.adapter.adapters.task_to_joint import task_to_joint_transform
+from utils.adapter.adapters.task_to_joint_hardcode import (
+    task_to_joint_hardcode_transform,
+)
 
 
 class AdapterNotFoundError(Exception):
@@ -28,7 +32,8 @@ class AdapterNotFoundError(Exception):
 # (vla_space, env_space) → 转换函数
 _ADAPTER_REGISTRY: dict[tuple[str, str], callable] = {
     ("joint", "joint"): joint_to_joint_transform,
-    ("task", "joint"): task_to_joint_transform,  # 依赖 env.ik（OpenVLA→Panda 预留）
+    # task→joint：无真实 IK 时用硬编码占位（前 N 维直通），保证链路不崩
+    ("task", "joint"): task_to_joint_hardcode_transform,
     ("task", "task"): identity_transform,        # 同空间直通（Mock→Panda）
     # ("joint", "task"): fk_based_transform,      # 预留，未实现
 }

@@ -114,6 +114,20 @@ class PandaRobotConfig:
 
 
 @dataclass
+class SO101RobotConfig:
+    """SO101 机器人特化配置（仅 robot.type == "so101" 时生效）。
+
+    Attributes:
+        arm_joint_indices: 5 个机械臂关节索引（joint[0-4]）。
+        ee_link_index: 末端执行器 link 索引（wrist_roll 之后）。
+        gripper_joint_index: 夹爪关节索引（joint[6]=gripper 铰链）。
+    """
+    arm_joint_indices: tuple[int, ...] = (0, 1, 2, 3, 4)
+    ee_link_index: int = 4
+    gripper_joint_index: int = 6
+
+
+@dataclass
 class RobotConfig:
     """机械臂配置。
 
@@ -122,11 +136,13 @@ class RobotConfig:
       - urdf_path / base_position: 保留顶层公共字段（所有机器人通用）。
       - panda: Panda 特化嵌套配置（arm_joint_indices / ee_link_index /
         finger_joint_indices 迁入此处，带默认值 fallback）。
+      - so101: SO101 特化嵌套配置（arm_joint_indices / ee_link_index）。
     """
     type: str = "panda"
     urdf_path: str = "franka_panda/panda.urdf"
     base_position: tuple[float, float, float] = (0.0, 0.0, 0.0)
     panda: PandaRobotConfig = field(default_factory=PandaRobotConfig)
+    so101: SO101RobotConfig = field(default_factory=SO101RobotConfig)
 
 
 @dataclass

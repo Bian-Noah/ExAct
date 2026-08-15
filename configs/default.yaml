@@ -40,6 +40,9 @@ robot:
     arm_joint_indices: [0, 1, 2, 3, 4, 5, 6]
     ee_link_index: 11
     finger_joint_indices: [9, 10]
+  so101:                          # SO101 特化配置（robot.type=so101 时生效）
+    arm_joint_indices: [0, 1, 2, 3, 4, 5]
+    ee_link_index: 6
 
 task:
   default_user_goal: "把机械臂移到红色方块上方"

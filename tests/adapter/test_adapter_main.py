@@ -7,7 +7,9 @@ from utils.adapter import get_adapter
 from utils.adapter.main import AdapterNotFoundError
 from utils.adapter.adapters.identity import identity_transform
 from utils.adapter.adapters.joint_to_joint import joint_to_joint_transform
-from utils.adapter.adapters.task_to_joint import task_to_joint_transform
+from utils.adapter.adapters.task_to_joint_hardcode import (
+    task_to_joint_hardcode_transform,
+)
 
 
 def _task_7d():
@@ -31,9 +33,9 @@ def test_get_adapter_joint_joint():
 
 
 def test_get_adapter_task_joint():
-    """(task, joint) → task_to_joint_transform。"""
+    """(task, joint) → task_to_joint_hardcode_transform。"""
     adapter = get_adapter(_task_7d(), _joint_6d())
-    assert adapter is task_to_joint_transform
+    assert adapter is task_to_joint_hardcode_transform
 
 
 def test_get_adapter_unknown_raises():

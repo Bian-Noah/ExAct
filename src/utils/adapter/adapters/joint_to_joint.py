@@ -19,7 +19,10 @@ _DEFAULT_GRIPPER: float = 0.5
 
 
 def _to_numpy(vla_output) -> np.ndarray:
-    """把 VLA 输出（数组/张量/tuple）转为一维 numpy。"""
+    """把 VLA 输出（裸动作值：数组/张量/tuple）转为一维 numpy。
+
+    输入已是 executor 解包后的裸值，不含 VLAOutput 包装。
+    """
     if isinstance(vla_output, np.ndarray):
         arr = vla_output
     elif hasattr(vla_output, "detach"):  # torch.Tensor

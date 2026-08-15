@@ -5,10 +5,12 @@
 
 from config.loader import RobotConfig
 from env.robot.panda.panda_robot import PandaRobot
+from env.robot.so101.so101_robot import SO101Robot
 
 # type → Robot 类 注册表
 _ROBOT_REGISTRY: dict[str, type] = {
     "panda": PandaRobot,
+    "so101": SO101Robot,
 }
 
 
@@ -19,20 +21,14 @@ def build_robot(robot_config: RobotConfig):
         robot_config: 机器人配置（含 type 与特化配置）。
 
     Returns:
-        对应 type 的 Robot 实例（如 PandaRobot）。
+        对应 type 的 Robot 实例（如 PandaRobot / SO101Robot）。
 
     Raises:
-        NotImplementedError: type 为已预留但未实现的类型（如 so101）。
         ValueError: type 不在注册表，列出可选类型。
     """
     robot_type = robot_config.type
     robot_cls = _ROBOT_REGISTRY.get(robot_type)
     if robot_cls is None:
-        if robot_type == "so101":
-            raise NotImplementedError(
-                "SO101 机器人尚未实现（robot-vla-adapter 本迭代只留骨架），"
-                "后续迭代填充后即可用。"
-            )
         raise ValueError(
             f"未知机器人类型: {robot_type!r}，可选类型: {sorted(_ROBOT_REGISTRY)}"
         )

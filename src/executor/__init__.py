@@ -13,7 +13,7 @@ import numpy as np
 from env.base import BaseEnv
 from executor.build_input import build_vla_input
 from executor.check_done import check_done
-from executor.model.base import BaseVLA
+from executor.model.base import BaseVLA, VLAOutput
 from executor.model.factory import create_vla
 from executor.model.mock.mock_vla import MockVLA
 from utils.logging import setup_logging
@@ -75,10 +75,10 @@ class Executor:
         信息（shape / dtype / 与 obs rgb 的一致性），用于确认 VLA 已能从 env
         拿到图——链路通。
 
-        robot-vla-adapter：新增可选 adapter 参数。adapter 在 vla.predict 之后、
-        env.step 之前执行，把 VLA 输出（VLAOutput）转换为 env 原生动作。
-        adapter=None 时直通（VLA 输出原样喂给 env）——executor 保持纯净，
-        不负责 adapter 的构造/兜底（那归 ActionTool._ensure_adapter）。
+        robot-vla-adapter：可选 adapter 参数。adapter 在 vla.predict 之后、
+        env.step 之前执行。predict 返回的 VLAOutput 会在调 adapter 前统一解包为
+        裸动作值，adapter 始终收到裸值（np.ndarray / Action7D / list 等），
+        不再处理 VLAOutput 包装。adapter=None 时直通（解包后的裸值原样喂给 env）。
 
         Args:
             env: BaseEnv 实例（PyBulletEnv / FakeEnv 等）。
@@ -104,7 +104,11 @@ class Executor:
             obs_before = env.get_obs()
             vla_input = build_vla_input(obs_before, instruction)
             vla_output = self.vla.predict(vla_input["image"], instruction)
-            # ★ adapter 插入点：VLA 输出 → env 原生动作
+            # ★ VLAOutput 统一解包：adapter 永远收到裸动作值，不再处理包装
+            # （VLAOutput 是所有 VLA 后端的通用返回包装，解包是无条件前置步骤）
+            if isinstance(vla_output, VLAOutput):
+                vla_output = vla_output.values
+            # ★ adapter 插入点：VLA 输出（裸值）→ env 原生动作
             action = adapter(vla_output, env) if adapter is not None else vla_output
 
             # Iteration 6：链路验证 print（仅第一步）
@@ -159,6 +163,7 @@ __all__ = [
     "ExecResult",
     "Executor",
     "MockVLA",
+    "VLAOutput",
     "build_vla_input",
     "check_done",
     "create_vla",

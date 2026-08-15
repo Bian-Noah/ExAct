@@ -1,7 +1,8 @@
 """LeRobot 后端实现。
 
 通过 pip install lerobot 后从 lerobot.policies 加载预置 policy（默认 ACT），
-封装 predict(image, instruction) -> Action7D。
+封装 predict(image, instruction) -> joint 空间动作（VLAOutput，values 为
+np.ndarray float，维度由 action_dim 决定）。
 
 lerobot 路径变更：
   - 0.5 及更早：policy 类位于 lerobot.common.policies.<type>.modeling_<type>
@@ -11,11 +12,8 @@ lerobot 路径变更：
 
 仅推理（不覆盖训练、LeRobotDataset 加载、硬件遥操作、lerobot CLI）。
 
-⚠️ 动作语义演示说明：
-ACT 在 ALOHA 等数据集上训练时输出维度是 14（双臂 × 7 维）。本实现仅截取前 7 维
-按 [dx, dy, dz, drx, dry, drz, gripper] 顺序填充为 Action7D。剩余 7 维丢弃。
-该映射仅作"接口对齐"演示，不保证物理语义一致。真实部署前需根据所用数据集与
-policy 输出维度做映射修正。
+动作语义：模型输出即关节角（joint 空间），原样返回，维度裁剪/补维交给
+(joint, joint) adapter（按 env.input_spec 对齐）。不在此处映射为 task 空间。
 
 obs 预处理 / 动作后处理统一走 lerobot 官方 PolicyProcessorPipeline：
   preprocessor(raw_obs) -> select_action(preprocessed) -> postprocessor(action)
@@ -62,8 +60,9 @@ class LeRobotVLA(BaseVLA):
             policy（smolvla / pi0 / pi0fast）生效；ACT / Diffusion 不量化。
         image_key: obs dict 中图像键名。默认 "observation.images.top"；
             实际部署时建议从 policy.config 推导（见 predict 中的自动探测）。
-        action_dim: policy 输出维度；超过 7 时只截前 7 维。
-            默认 14（ACT ALOHA 训练版常见值）。
+        action_dim: policy 输出维度（joint 空间）。spec 与 predict 返回值维度
+            均由此决定，不硬编码。默认 14（ACT ALOHA 训练版常见值；
+            SO101 单臂常见 6）。
     """
 
     def __init__(
@@ -486,25 +485,22 @@ class LeRobotVLA(BaseVLA):
     # ------------------------------------------------------------------
 
     def predict(self, image: np.ndarray, instruction: str) -> VLAOutput:
-        """输入图片 + 自然语言指令，输出 7D 动作。
+        """输入图片 + 自然语言指令，输出 joint 空间动作。
 
         推理链路（官方管线）：
           raw_obs = _build_raw_obs(image, instruction)   # 原始 obs dict
           preprocessed = preprocessor(raw_obs)           # batch/归一化/tokenize
           action = policy.select_action(preprocessed)    # 单步 (1, action_dim)
           action = postprocessor(action)                 # 反归一化
-          → 截前 7 维 → Action7D
+          → 原样返回 joint 空间动作（维度由 action_dim 决定，不硬编码）
 
         Args:
             image: np.ndarray (H, W, 3) uint8，范围 [0, 255]。
             instruction: 自然语言指令字符串。
 
         Returns:
-            Action7D NamedTuple，7 字段依次为
-            dx/dy/dz（米）/ drx/dry/drz（弧度）/ gripper（[0,1]）。
-
-        注意：LeRobot policy 原始输出维度由训练数据集决定（ACT ALOHA 为 14）。
-        本实现截取前 7 维当作 Action7D，剩余维度丢弃；语义未对齐属已知风险。
+            VLAOutput：values 为 np.ndarray float（joint 空间，dim=action_dim），
+            spec 为 joint 空间同维度。
 
         Raises:
             TypeError: image 非 np.ndarray。
@@ -539,25 +535,34 @@ class LeRobotVLA(BaseVLA):
         if action_np.ndim == 2:
             action_np = action_np[0]
 
-        # 适配不同 action 维度的 policy：
-        #   7 维 → 原样填入 7 字段（含真实 gripper）
-        #   6 维 → 用配置的默认 gripper 补足第 7 维（SO101 等单臂无独立 gripper 输出）
-        #   其他 <6 → 抛错（连 6 维位置/姿态都不够，没法映射）
-        if action_np.shape[0] < 6:
-            raise RuntimeError(
-                f"LeRobot policy 输出维度 {action_np.shape[0]} 不足 6 维，"
-                f"无法映射到 Action7D。请检查 model_path 与 action_dim 设置。"
-            )
-
-        if action_np.shape[0] >= 7:
-            first7 = action_np[:7].astype(float).tolist()
-            dx, dy, dz, drx, dry, drz, gripper = first7
-        else:
-            # 6 维：截 6 个位置/姿态维度 + gripper 用默认占位（模型没输出夹爪信号）
-            first6 = action_np[:6].astype(float).tolist()
-            dx, dy, dz, drx, dry, drz = first6
-            gripper = self._default_gripper
+        # joint 空间直通：模型输出即为关节角，原样返回。
+        # 维度裁剪/补维交给 (joint, joint) adapter（按 env.input_spec 对齐）。
+        # 旧 task 空间映射已废弃（见 git 历史 1bb7cf6 之前的 task 语义处理）。
         return VLAOutput(
-            values=Action7D(dx, dy, dz, drx, dry, drz, gripper),
+            values=action_np.astype(float),
             spec=self.output_spec,
         )
+
+        # ==== 以下旧后处理已注释（task 空间硬映射，与 joint spec 矛盾） ====
+        # # 适配不同 action 维度的 policy：
+        # #   7 维 → 原样填入 7 字段（含真实 gripper）
+        # #   6 维 → 用配置的默认 gripper 补足第 7 维（SO101 等单臂无独立 gripper 输出）
+        # #   其他 <6 → 抛错（连 6 维位置/姿态都不够，没法映射）
+        # if action_np.shape[0] < 6:
+        #     raise RuntimeError(
+        #         f"LeRobot policy 输出维度 {action_np.shape[0]} 不足 6 维，"
+        #         f"无法映射到 Action7D。请检查 model_path 与 action_dim 设置。"
+        #     )
+        #
+        # if action_np.shape[0] >= 7:
+        #     first7 = action_np[:7].astype(float).tolist()
+        #     dx, dy, dz, drx, dry, drz, gripper = first7
+        # else:
+        #     # 6 维：截 6 个位置/姿态维度 + gripper 用默认占位（模型没输出夹爪信号）
+        #     first6 = action_np[:6].astype(float).tolist()
+        #     dx, dy, dz, drx, dry, drz = first6
+        #     gripper = self._default_gripper
+        # return VLAOutput(
+        #     values=Action7D(dx, dy, dz, drx, dry, drz, gripper),
+        #     spec=self.output_spec,
+        # )

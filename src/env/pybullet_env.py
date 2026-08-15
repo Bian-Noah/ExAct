@@ -322,7 +322,9 @@ class PyBulletEnv(BaseEnv):
             obs dict，包含 rgb/object_info/ee_pos/state_desc。
         """
         self._ensure_connected()
-        ee_link_idx = self.robot_config.panda.ee_link_index
+        # robot-vla-adapter：ee_link_index 从 self.robot（Robot 对象）读取，
+        # 不硬编码 panda（SO101 等其它机器人的 ee 索引不同）
+        ee_link_idx = self.robot.ee_link_index
         # 末端位置
         link_state = p.getLinkState(
             self._robot_id,

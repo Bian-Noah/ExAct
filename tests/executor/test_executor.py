@@ -352,7 +352,8 @@ _ADAPTER_TEST_OBS = {
 
 
 def test_run_action_with_adapter_transforms_before_step():
-    """run_action(adapter=...) → 循环内先转换后 step。"""
+    """run_action(adapter=...) → 循环内先解包 VLAOutput，再转换后 step。"""
+    from env.base import Action7D
     from executor.model.base import VLAOutput
 
     observed = {}
@@ -373,13 +374,18 @@ def test_run_action_with_adapter_transforms_before_step():
         return "TRANSFORMED"
 
     result = executor.run_action(env, "move", done_criteria="unknown", adapter=fake_adapter)
+    # adapter 收到的是解包后的裸动作值（Action7D），不是 VLAOutput 包装
     assert observed["adapter_received"] is not None
-    assert isinstance(observed["adapter_received"], VLAOutput)
+    assert isinstance(observed["adapter_received"], Action7D)
+    assert not isinstance(observed["adapter_received"], VLAOutput)
     assert observed["step_action"] == "TRANSFORMED"
 
 
 def test_run_action_adapter_none_direct():
-    """run_action(adapter=None) → vla 输出原样 step（直通）。"""
+    """run_action(adapter=None) → VLAOutput 解包后的裸值原样 step（直通）。"""
+    from env.base import Action7D
+    from executor.model.base import VLAOutput
+
     observed = {}
 
     def capturing_env(action):
@@ -393,9 +399,9 @@ def test_run_action_adapter_none_direct():
     vla = MockVLA(seed=0)
     executor = Executor(vla, max_steps=1)
     result = executor.run_action(env, "move", done_criteria="unknown", adapter=None)
-    # None 直通：vla_output（VLAOutput）原样喂给 env.step
-    from executor.model.base import VLAOutput
-    assert isinstance(observed["step_action"], VLAOutput)
+    # None 直通：vla_output 已被解包为裸 Action7D 喂给 env.step
+    assert isinstance(observed["step_action"], Action7D)
+    assert not isinstance(observed["step_action"], VLAOutput)
 
 
 def test_run_action_identity_adapter_unwraps_values():
@@ -419,3 +425,71 @@ def test_run_action_identity_adapter_unwraps_values():
     executor.run_action(env, "move", done_criteria="unknown", adapter=identity_transform)
     assert isinstance(observed["step_action"], Action7D)
     assert not isinstance(observed["step_action"], VLAOutput)
+
+
+def test_run_action_joint_to_joint_so101_link():
+    """LeRobotVLA 类 joint 输出 → executor 解包 → joint_to_joint → SO101 joint 6 维。
+
+    模拟真实链路：VLA 返回 VLAOutput(values=np.ndarray joint, spec=joint)。
+    executor 统一解包为裸数组后，joint_to_joint_transform 按 SO101 env.input_spec
+    截取到 6 维喂给 env.step。
+    """
+    from env.base import ActionSpec, BaseEnv
+    from executor.model.base import VLAOutput
+    from executor.model.base import BaseVLA
+    from utils.adapter.adapters.joint_to_joint import joint_to_joint_transform
+
+    class JointVLA(BaseVLA):
+        """模拟 LeRobotVLA：输出 joint 8 维（VLAOutput 包装）。"""
+
+        @property
+        def output_spec(self):
+            return ActionSpec("joint", ("joint",) * 8)
+
+        def predict(self, image, instruction):
+            return VLAOutput(
+                values=np.array([1.0, 2, 3, 4, 5, 6, 7, 8]),
+                spec=self.output_spec,
+            )
+
+    class So101FakeEnv(BaseEnv):
+        """SO101 假 env：input_spec joint 6 维。"""
+
+        @property
+        def input_spec(self):
+            return ActionSpec("joint", ("joint",) * 6)
+
+        def reset(self, task_spec=None, seed=0):
+            return _ADAPTER_TEST_OBS
+
+        def step(self, action):
+            return _ADAPTER_TEST_OBS, 0.0, False, {}
+
+        def render(self):
+            return _ADAPTER_TEST_OBS["rgb"]
+
+        def get_obs(self, include_rgb=True):
+            return _ADAPTER_TEST_OBS
+
+        def close(self):
+            pass
+
+    observed = {}
+
+    def capturing_env(action):
+        observed["step_action"] = action
+        return _ADAPTER_TEST_OBS, 0.0, False, {}
+
+    env = So101FakeEnv()
+    env.step = capturing_env
+
+    vla = JointVLA()
+    executor = Executor(vla, max_steps=1)
+    adapter = joint_to_joint_transform
+    executor.run_action(env, "move", done_criteria="unknown", adapter=adapter)
+
+    # env.step 收到 SO101 的 6 维关节动作
+    step_action = observed["step_action"]
+    assert isinstance(step_action, np.ndarray)
+    assert step_action.shape == (6,)
+    np.testing.assert_allclose(step_action, [1.0, 2, 3, 4, 5, 6])
