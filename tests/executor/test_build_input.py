@@ -11,7 +11,7 @@ def _make_rgb(h=10, w=10):
 
 
 def test_build_vla_input_normal_full_obs():
-    """完整 obs + instruction → 返回 dict 含 5 个键，类型正确。"""
+    """完整 obs + instruction → 返回 dict 含 6 个键，类型正确。"""
     obs = {
         "rgb": _make_rgb(),
         "object_info": [{"name": "red_block"}],
@@ -20,7 +20,7 @@ def test_build_vla_input_normal_full_obs():
     }
     result = build_vla_input(obs, "move")
     assert set(result.keys()) == {
-        "image", "instruction", "ee_pos", "objects", "state_desc"
+        "image", "instruction", "ee_pos", "objects", "state_desc", "state"
     }
     assert isinstance(result["image"], np.ndarray)
     assert isinstance(result["ee_pos"], tuple)

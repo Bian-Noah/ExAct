@@ -11,6 +11,7 @@ SO101 消费 joint 空间 6 维动作（adapter 已把 VLA 输出转换为 env �
   - stepSimulation 推进物理
 """
 
+import numpy as np
 import pybullet as p
 
 from config.loader import RobotConfig
@@ -67,3 +68,18 @@ class SO101Robot:
 
         for _ in range(10):
             p.stepSimulation(physicsClientId=client_id)
+
+    def get_joint_state(self, robot_id: int, client_id: int) -> np.ndarray:
+        """读取 SO101 当前关节角（含 gripper）作为 VLA 的 state 输入。
+
+        Returns:
+            np.ndarray, shape=(6,): 5 臂关节 + 1 gripper，按 URDF 关节索引顺序。
+        """
+        states = p.getJointStates(
+            robot_id, self.arm_joint_indices, physicsClientId=client_id
+        )
+        arm = [s[0] for s in states]
+        gripper_state = p.getJointState(
+            robot_id, self.gripper_joint_index, physicsClientId=client_id
+        )
+        return np.array(list(arm) + [gripper_state[0]], dtype=float)

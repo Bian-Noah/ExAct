@@ -18,12 +18,15 @@ def build_vla_input(obs: dict, instruction: str) -> dict:
         instruction: 自然语言指令字符串（允许空字符串）。
 
     Returns:
-        dict 含 5 个键：
+        dict 含 6 个键：
         - image: np.ndarray 或 None（来自 obs["rgb"]）
         - instruction: str
         - ee_pos: tuple（来自 obs["ee_pos"]，list 会被转为 tuple）
         - objects: list（来自 obs["object_info"]，缺失默认 []）
         - state_desc: str（来自 obs["state_desc"]，缺失默认 ""）
+        - state: np.ndarray 或 None（来自 obs["joint_state"]，缺失默认 None）。
+          VLA 拿到 None 时回退到自身默认行为（如 ACT 喂零向量），
+          真实部署时 executor 应从 env.get_joint_state() 注入。
 
     Raises:
         TypeError: instruction 非 str 类型。
@@ -60,4 +63,5 @@ def build_vla_input(obs: dict, instruction: str) -> dict:
         "ee_pos": ee_pos,
         "objects": objects,
         "state_desc": state_desc,
+        "state": obs.get("joint_state", None),
     }

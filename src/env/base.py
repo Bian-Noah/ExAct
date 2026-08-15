@@ -142,3 +142,17 @@ class BaseEnv(ABC):
             NotImplementedError: 该机器人未实现 fk（关节空间→任务空间）。
         """
         raise NotImplementedError("该机器人未实现 fk（关节空间→任务空间）")
+
+    def get_joint_state(self) -> np.ndarray:
+        """返回当前关节角向量（按 robot 关节顺序，可被 VLA 当作 observation.state）。
+
+        默认未实现，env 子类按需 override。VLA 拿到后传给 predict(image, instruction, state)
+        让基于 proprioception 的 IL policy（ACT/Diffusion 等）不再以零向量占位推理。
+
+        Returns:
+            np.ndarray, shape=(self.action_dim,), dtype=float。
+
+        Raises:
+            NotImplementedError: 该 env 未实现 joint state 暴露。
+        """
+        raise NotImplementedError("该 env 未实现 get_joint_state")

@@ -416,8 +416,13 @@ class LeRobotVLA(BaseVLA):
     # 内部：原始 obs 构造（交给官方 preprocessor 处理）
     # ------------------------------------------------------------------
 
-    def _build_raw_obs(self, image: np.ndarray, instruction: str) -> dict:
-        """把 (image, instruction) 包装为 preprocessor 期望的原始 obs dict。
+    def _build_raw_obs(
+        self,
+        image: np.ndarray,
+        instruction: str,
+        state: np.ndarray | None = None,
+    ) -> dict:
+        """把 (image, instruction[, state]) 包装为 preprocessor 期望的原始 obs dict。
 
         图像预处理（关键）：
           输入  image : numpy uint8 (H, W, 3)
@@ -443,15 +448,28 @@ class LeRobotVLA(BaseVLA):
         for key in self._resolved_image_keys or [self.image_key]:
             obs[key] = img_tensor
         obs["observation.language_instruction"] = instruction
-        # state 用零向量占位；真实部署需传入当前关节角
+        # state：优先用真实关节角（由 env.get_joint_state() 注入）；
+        # None 或维度不匹配时回退到零向量占位（向后兼容）。
         # 防御性：直接放到 self.device，不依赖 device_processor 是否正确处理。
         # 否则若 saved preprocessor 的 device_processor 配置与 self.device 不一致，
         # 或某步对 state 走了 numpy 兜底分支，state 会留 CPU，与 GPU 模型权重 matmul 时
         # 触发 device mismatch（cuda:0 vs cpu）。
         state_dim = self._infer_state_dim()
-        obs[self._resolved_state_key or "observation.state"] = torch.zeros(
-            (state_dim,), dtype=torch.float32, device=self.device
-        )
+        state_tensor: torch.Tensor
+        if state is not None and len(state) == state_dim:
+            state_tensor = torch.as_tensor(
+                np.asarray(state, dtype=np.float32), device=self.device
+            )
+        else:
+            if state is not None:
+                self._log.warning(
+                    f"state 维度 {len(state) if hasattr(state, '__len__') else '?'} "
+                    f"与 policy.state_dim {state_dim} 不匹配，回退到零向量"
+                )
+            state_tensor = torch.zeros(
+                (state_dim,), dtype=torch.float32, device=self.device
+            )
+        obs[self._resolved_state_key or "observation.state"] = state_tensor
         return obs
 
     def _infer_state_dim(self) -> int:
@@ -484,19 +502,27 @@ class LeRobotVLA(BaseVLA):
     # BaseVLA.predict
     # ------------------------------------------------------------------
 
-    def predict(self, image: np.ndarray, instruction: str) -> VLAOutput:
+    def predict(
+        self,
+        image: np.ndarray,
+        instruction: str,
+        state: np.ndarray | None = None,
+    ) -> VLAOutput:
         """输入图片 + 自然语言指令，输出 joint 空间动作。
 
         推理链路（官方管线）：
-          raw_obs = _build_raw_obs(image, instruction)   # 原始 obs dict
-          preprocessed = preprocessor(raw_obs)           # batch/归一化/tokenize
-          action = policy.select_action(preprocessed)    # 单步 (1, action_dim)
-          action = postprocessor(action)                 # 反归一化
+          raw_obs = _build_raw_obs(image, instruction, state)  # 原始 obs dict
+          preprocessed = preprocessor(raw_obs)                 # batch/归一化/tokenize
+          action = policy.select_action(preprocessed)          # 单步 (1, action_dim)
+          action = postprocessor(action)                       # 反归一化
           → 原样返回 joint 空间动作（维度由 action_dim 决定，不硬编码）
 
         Args:
             image: np.ndarray (H, W, 3) uint8，范围 [0, 255]。
             instruction: 自然语言指令字符串。
+            state: np.ndarray 或 None。当前机器人关节角，作为
+                observation.state 喂给 policy。None 时回退到零向量
+                （旧行为，向后兼容）。
 
         Returns:
             VLAOutput：values 为 np.ndarray float（joint 空间，dim=action_dim），
@@ -519,7 +545,7 @@ class LeRobotVLA(BaseVLA):
 
         self._ensure_loaded()
 
-        raw_obs = self._build_raw_obs(image, instruction)
+        raw_obs = self._build_raw_obs(image, instruction, state)
         preprocessed = self._preprocessor(raw_obs)
 
         with torch.no_grad():

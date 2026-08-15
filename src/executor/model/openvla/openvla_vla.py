@@ -119,12 +119,19 @@ class OpenVLA(BaseVLA):
 
         self._log.info("OpenVLA 懒加载完成")
 
-    def predict(self, image: np.ndarray, instruction: str) -> VLAOutput:
+    def predict(
+        self,
+        image: np.ndarray,
+        instruction: str,
+        state: np.ndarray | None = None,
+    ) -> VLAOutput:
         """输入图片 + 自然语言指令，输出 7D 动作。
 
         Args:
             image: np.ndarray (H, W, 3) uint8，范围 [0, 255]。
             instruction: 自然语言指令字符串。
+            state: 暂未使用（OpenVLA 走 prompt 链路，不在 state 通道做 proprio）；
+                保留参数位以与 BaseVLA 接口对齐。
 
         Returns:
             Action7D NamedTuple，7 字段依次为

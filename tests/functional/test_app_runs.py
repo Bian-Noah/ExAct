@@ -68,8 +68,13 @@ def test_app_py_runs_end_to_end():
         )
 
     import pipeline.runner as R
+    # 同步 monkeypatch create_vla：避免 local.yaml backend 变化导致与 _FakeEnv.input_spec 不匹配。
+    # _FakeEnv 是 task 7D，故 VLA 也必须是 mock（task 7D）。production 路径的 VLA×env 配对
+    # 在 tests/functional/test_config_drives_env.py 等场景独立验证。
+    from executor.model.mock.mock_vla import MockVLA
     with patch.object(R, "PyBulletEnv", _FakeEnv), \
          patch.object(R, "create_llm", return_value=FakeListLLM(responses=["ok"])), \
+         patch.object(R, "create_vla", return_value=MockVLA()), \
          patch.object(R, "create_exact_agent", side_effect=fake_create_exact_agent), \
          patch.object(R, "run_agent", side_effect=fake_run_agent):
         import app
@@ -80,7 +85,9 @@ def test_app_py_runs_end_to_end():
     args, kwargs = captured["create_exact_agent_called_with"]
     assert "max_react_rounds" in kwargs
     assert "max_tool_calls" in kwargs
-    assert captured["run_agent_user_goal"] == "把机械臂移到红色方块上方"
+    # user_goal 取自 cfg.task.default_user_goal（来自 local.yaml），不同仓库会不同；
+    # 这里只断言非空，具体文本不锁。
+    assert captured["run_agent_user_goal"], "user_goal 不应为空"
 
 
 def test_app_py_line_count_under_30():

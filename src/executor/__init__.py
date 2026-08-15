@@ -6,6 +6,7 @@
 - BaseVLA / MockVLA / create_vla: VLA 模型抽象与工厂（详见 executor.model 子包）
 """
 
+import inspect
 from dataclasses import dataclass
 
 import numpy as np
@@ -100,10 +101,33 @@ class Executor:
         reason = ""
         step = 0
 
+        # 缓存 VLA.predict 是否接受 state 参数（兼容老 VLA 子类，inspect 比反射更稳）
+        _predict_accepts_state = getattr(self, "_predict_accepts_state", None)
+        if _predict_accepts_state is None:
+            try:
+                _predict_accepts_state = (
+                    "state" in inspect.signature(self.vla.predict).parameters
+                )
+            except (TypeError, ValueError):
+                _predict_accepts_state = False
+            self._predict_accepts_state = _predict_accepts_state
+
         for step in range(self.max_steps):
             obs_before = env.get_obs()
             vla_input = build_vla_input(obs_before, instruction)
-            vla_output = self.vla.predict(vla_input["image"], instruction)
+            # ★ VLA 真实本体感知：优先读 env.get_joint_state()，未实现则保持 None
+            # （VLA 后端内部对 None 有兜底，不会破坏既有调用）。
+            state_vec = None
+            try:
+                state_vec = env.get_joint_state()
+            except (NotImplementedError, AttributeError):
+                state_vec = None
+            if _predict_accepts_state:
+                vla_output = self.vla.predict(
+                    vla_input["image"], instruction, state=state_vec
+                )
+            else:
+                vla_output = self.vla.predict(vla_input["image"], instruction)
             # ★ VLAOutput 统一解包：adapter 永远收到裸动作值，不再处理包装
             # （VLAOutput 是所有 VLA 后端的通用返回包装，解包是无条件前置步骤）
             if isinstance(vla_output, VLAOutput):

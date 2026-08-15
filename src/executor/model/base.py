@@ -33,12 +33,20 @@ class BaseVLA(abc.ABC):
     """
 
     @abc.abstractmethod
-    def predict(self, image: np.ndarray, instruction: str) -> VLAOutput:
+    def predict(
+        self,
+        image: np.ndarray,
+        instruction: str,
+        state: np.ndarray | None = None,
+    ) -> VLAOutput:
         """输入图片 + 自然语言指令，输出带 spec 的动作。
 
         Args:
             image: np.ndarray (H, W, 3) uint8，当前场景截图。
             instruction: 自然语言指令字符串，如 "移动到红色方块上方"。
+            state: 可选 np.ndarray，当前机器人关节角/本体感知状态。
+                None 时各后端按自身默认（ACT 默认零向量，Mock 忽略）。
+                真实部署时 executor 应从 env.get_joint_state() 注入。
 
         Returns:
             VLAOutput：values 为动作值，spec 声明其语义。

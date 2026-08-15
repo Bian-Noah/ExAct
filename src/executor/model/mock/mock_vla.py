@@ -32,7 +32,12 @@ class MockVLA(BaseVLA):
             "task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper")
         )
 
-    def predict(self, image: np.ndarray, instruction: str) -> Action7D:
+    def predict(
+        self,
+        image: np.ndarray,
+        instruction: str,
+        state: np.ndarray | None = None,
+    ) -> VLAOutput:
         """生成伪随机 7D 动作。
 
         位移分量范围 [-0.02, 0.02] 米，旋转分量范围 [-0.05, 0.05] 弧度，
@@ -41,6 +46,7 @@ class MockVLA(BaseVLA):
         Args:
             image: 故意忽略，可为任意值（含 None）。
             instruction: 用于哈希生成种子，影响输出。
+            state: 故意忽略（Mock 不依赖本体感知）。
 
         Returns:
             VLAOutput：values 为 Action7D 实例，spec 为 task 空间 7 维。

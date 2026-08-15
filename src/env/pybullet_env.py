@@ -382,3 +382,12 @@ class PyBulletEnv(BaseEnv):
     def input_spec(self) -> ActionSpec:
         """委托给实际加载的 robot 声明其消费 spec（不再硬编码 Panda）。"""
         return self.robot.input_spec
+
+    def get_joint_state(self) -> np.ndarray:
+        """读取当前机器人关节角作为 VLA observation.state。
+
+        Returns:
+            np.ndarray, shape 取决于 robot（SO101 6 维、Panda 7 维）。
+        """
+        self._ensure_connected()
+        return self.robot.get_joint_state(self._robot_id, self._client_id)

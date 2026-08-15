@@ -6,6 +6,7 @@
   - stepSimulation 推进物理
 """
 
+import numpy as np
 import pybullet as p
 
 from config.loader import RobotConfig
@@ -84,3 +85,14 @@ class PandaRobot:
         # 推进物理仿真
         for _ in range(10):
             p.stepSimulation(physicsClientId=client_id)
+
+    def get_joint_state(self, robot_id: int, client_id: int) -> np.ndarray:
+        """读取 Panda 当前关节角（仅臂，finger 不在 VLA state 里）作为 VLA 的 state 输入。
+
+        Returns:
+            np.ndarray, shape=(7,): 7 臂关节，按 URDF 关节索引顺序。
+        """
+        states = p.getJointStates(
+            robot_id, self.arm_joint_indices, physicsClientId=client_id
+        )
+        return np.array([s[0] for s in states], dtype=float)
