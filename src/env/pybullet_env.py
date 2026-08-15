@@ -380,7 +380,5 @@ class PyBulletEnv(BaseEnv):
 
     @property
     def input_spec(self) -> ActionSpec:
-        """Panda env 消费 task 空间 7 维动作（Action7D 语义）。"""
-        return ActionSpec(
-            "task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper")
-        )
+        """委托给实际加载的 robot 声明其消费 spec（不再硬编码 Panda）。"""
+        return self.robot.input_spec
