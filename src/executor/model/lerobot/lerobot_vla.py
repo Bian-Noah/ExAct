@@ -1,7 +1,13 @@
 """LeRobot 后端实现。
 
-通过 pip install lerobot 后从 lerobot.common.policies 加载预置 policy（默认 ACT），
+通过 pip install lerobot 后从 lerobot.policies 加载预置 policy（默认 ACT），
 封装 predict(image, instruction) -> Action7D。
+
+lerobot 路径变更：
+  - 0.5 及更早：policy 类位于 lerobot.common.policies.<type>.modeling_<type>
+  - 0.6+     ：policy 类位于 lerobot.policies.<type>.modeling_<type>（common 层被移除），
+    同时 pi0fast 子包改名为 pi0_fast。本项目 requirements-stage2.txt 锁 >=0.6，
+    _import_policy_class 优先用新路径，失败时回退旧路径以便兼容。
 
 仅推理（不覆盖训练、LeRobotDataset 加载、硬件遥操作、lerobot CLI）。
 
@@ -31,7 +37,7 @@ import torch
 from env.base import Action7D
 from executor.model.base import BaseVLA
 
-# 支持的 policy 类型（与 lerobot.common.policies 子模块名一致）
+# 支持的 policy 类型（与 lerobot.policies 子模块名一致；pi0fast 在 0.6+ 改名为 pi0_fast）
 SUPPORTED_POLICY_TYPES: frozenset[str] = frozenset(
     {"act", "diffusion", "vqbet", "smolvla", "pi0", "pi0fast"}
 )
@@ -48,8 +54,9 @@ class LeRobotVLA(BaseVLA):
     Attributes:
         model_path: HF Hub repo_id（如 "lerobot/act_aloha_sim_transfer_cube_human"）
             或本地 policy 目录路径。
-        policy_type: policy 类型，决定从 lerobot.common.policies.<type> 导入哪个类。
-            常见值：act（轻量、默认）、diffusion、smolvla、pi0。
+        policy_type: policy 类型，决定从 lerobot.policies.<type> 导入哪个类（0.5 及
+            更早为 lerobot.common.policies.<type>）。常见值：act（轻量、默认）、
+            diffusion、smolvla、pi0。
         device: 推理设备，默认 "cuda:0"。
         quantization: 量化等级，"none" | "8bit" | "4bit"。仅对 VLA 类
             policy（smolvla / pi0 / pi0fast）生效；ACT / Diffusion 不量化。
@@ -86,13 +93,17 @@ class LeRobotVLA(BaseVLA):
         self.quantization = quantization
         self.image_key = image_key
         self.action_dim = action_dim
+        # policy 输出 <7 维时补到 Action7D 的 gripper 占位值；0.5=半开
+        self._default_gripper: float = 0.5
 
         # 懒加载占位
         self._policy: Any = None
         self._preprocessor: Any = None
         self._postprocessor: Any = None
         # 从 policy.config 自动推导出来的 obs 键
-        self._resolved_image_key: Optional[str] = None
+        # lerobot 0.6+ 用 input_features（dict[PolicyFeature]），老版本用 input_shapes
+        # 图像键可能有多个（多相机 SO101 就有 overhead+wrist）
+        self._resolved_image_keys: list[str] = []
         self._resolved_state_key: Optional[str] = None
 
         self._log = logging.getLogger("lerobot_vla")
@@ -116,7 +127,7 @@ class LeRobotVLA(BaseVLA):
     def _ensure_loaded(self) -> None:
         """首次调用 predict 时加载 policy + 处理器管线。
 
-        通过 lerobot.common.policies.<type>.modeling_<type>.<Type>Policy.from_pretrained
+        通过 lerobot.policies.<type>.modeling_<type>.<Type>Policy.from_pretrained
         加载 policy，再用官方 make_pre_post_processors 生成 obs 预处理与动作后处理管线。
         若 lerobot 未安装抛 ImportError，让上层能分支处理。
         """
@@ -305,63 +316,94 @@ class LeRobotVLA(BaseVLA):
             pi0       -> PI0Policy
             pi0fast   -> PI0FastPolicy
         """
-        try:
-            if policy_type == "act":
-                from lerobot.common.policies.act.modeling_act import ACTPolicy
-                return ACTPolicy
-            if policy_type == "diffusion":
-                from lerobot.common.policies.diffusion.modeling_diffusion import (
-                    DiffusionPolicy,
-                )
-                return DiffusionPolicy
-            if policy_type == "vqbet":
-                from lerobot.common.policies.vqbet.modeling_vqbet import VQBeTPolicy
-                return VQBeTPolicy
-            if policy_type == "smolvla":
-                from lerobot.common.policies.smolvla.modeling_smolvla import (
-                    SmolVLAPolicy,
-                )
-                return SmolVLAPolicy
-            if policy_type == "pi0":
-                from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
-                return PI0Policy
-            if policy_type == "pi0fast":
-                from lerobot.common.policies.pi0fast.modeling_pi0fast import (
-                    PI0FastPolicy,
-                )
-                return PI0FastPolicy
-        except ImportError as e:
+        # 0.6+ 新路径：去掉 common. 层；pi0fast 改名为 pi0_fast
+        new_paths: dict[str, tuple[str, str]] = {
+            "act":       ("lerobot.policies.act.modeling_act",             "ACTPolicy"),
+            "diffusion": ("lerobot.policies.diffusion.modeling_diffusion", "DiffusionPolicy"),
+            "vqbet":     ("lerobot.policies.vqbet.modeling_vqbet",         "VQBeTPolicy"),
+            "smolvla":   ("lerobot.policies.smolvla.modeling_smolvla",     "SmolVLAPolicy"),
+            "pi0":       ("lerobot.policies.pi0.modeling_pi0",             "PI0Policy"),
+            "pi0fast":   ("lerobot.policies.pi0_fast.modeling_pi0_fast",   "PI0FastPolicy"),
+        }
+        # 0.5- 旧路径：保留以便 lerobot<0.6 环境也能跑（超出 requirements 范围，但便宜）
+        old_paths: dict[str, tuple[str, str]] = {
+            "act":       ("lerobot.common.policies.act.modeling_act",             "ACTPolicy"),
+            "diffusion": ("lerobot.common.policies.diffusion.modeling_diffusion", "DiffusionPolicy"),
+            "vqbet":     ("lerobot.common.policies.vqbet.modeling_vqbet",         "VQBeTPolicy"),
+            "smolvla":   ("lerobot.common.policies.smolvla.modeling_smolvla",     "SmolVLAPolicy"),
+            "pi0":       ("lerobot.common.policies.pi0.modeling_pi0",             "PI0Policy"),
+            "pi0fast":   ("lerobot.common.policies.pi0fast.modeling_pi0fast",     "PI0FastPolicy"),
+        }
+
+        last_err: Optional[Exception] = None
+        for paths in (new_paths, old_paths):
+            if policy_type not in paths:
+                continue
+            mod_path, cls_name = paths[policy_type]
+            try:
+                import importlib
+                module = importlib.import_module(mod_path)
+                return getattr(module, cls_name)
+            except ImportError as e:
+                last_err = e
+                continue
+
+        if last_err is not None:
             raise ImportError(
-                f"导入 lerobot policy={policy_type!r} 失败：{e}。"
+                f"导入 lerobot policy={policy_type!r} 失败：{last_err}。"
                 f"请检查 lerobot 版本是否包含该 policy。"
-            ) from e
+            ) from last_err
         raise ValueError(f"未知 policy_type: {policy_type!r}")
 
     def _resolve_obs_keys(self) -> None:
-        """从 policy.config 自动探测图像与状态 obs 键名。
+        """从 policy.config 自动探测所有图像键与状态 obs 键名。
 
-        若 self._policy 有 config.input_shapes / output_shapes dict，
-        则从中挑选第一个图像键（值含 'image'）和第一个状态键（值含 'state'）。
-        探测失败时保留构造时给定的 image_key。
+        lerobot 0.6+ 把特征元数据放在 config.input_features（dict[str, PolicyFeature]）；
+        每个 PolicyFeature 有 .type（VISUAL/STATE/...）和 .shape。
+        多相机 policy（如 SO101 overhead+wrist）需要把所有 VISUAL 键都填到 obs dict，
+        否则下游 predict_action_chunk 会因 KeyError 中断。
+
+        探测失败时回退到构造时给定的 image_key（单相机占位）。
         """
-        self._resolved_image_key = self.image_key
+        self._resolved_image_keys = []
         self._resolved_state_key = "observation.state"
 
         try:
             cfg = getattr(self._policy, "config", None)
             if cfg is None:
                 return
-            input_shapes = getattr(cfg, "input_shapes", None) or {}
-            if not isinstance(input_shapes, dict):
+            input_features = getattr(cfg, "input_features", None) or {}
+            if not isinstance(input_features, dict):
                 return
-            image_keys = [k for k in input_shapes if "image" in k.lower()]
-            state_keys = [k for k in input_shapes if "state" in k.lower()]
-            if image_keys:
-                self._resolved_image_key = image_keys[0]
-            if state_keys:
-                self._resolved_state_key = state_keys[0]
+
+            from lerobot.configs.types import FeatureType
+
+            # 优先按 FeatureType 取：所有 VISUAL 是图像键，第一个 STATE 是状态键
+            for k, ft in input_features.items():
+                if getattr(ft, "type", None) == FeatureType.VISUAL:
+                    self._resolved_image_keys.append(k)
+            if not self._resolved_image_keys:
+                # 退化：按 key 名匹配（兼容老 lerobot 或自定义 feature）
+                for k in input_features:
+                    if "image" in k.lower():
+                        self._resolved_image_keys.append(k)
+
+            for k, ft in input_features.items():
+                if getattr(ft, "type", None) == FeatureType.STATE:
+                    self._resolved_state_key = k
+                    break
+            if self._resolved_state_key == "observation.state":
+                # 退化：按 key 名匹配
+                for k in input_features:
+                    if "state" in k.lower():
+                        self._resolved_state_key = k
+                        break
         except Exception as e:  # pragma: no cover - 探测失败不影响主流程
             self._log.debug(f"obs 键自动探测失败，保留默认：{e}")
+
+        # 最终 fallback：没探测到图像键时用构造时的 image_key 占位（单相机）
+        if not self._resolved_image_keys:
+            self._resolved_image_keys = [self.image_key]
 
     # ------------------------------------------------------------------
     # 内部：原始 obs 构造（交给官方 preprocessor 处理）
@@ -370,34 +412,66 @@ class LeRobotVLA(BaseVLA):
     def _build_raw_obs(self, image: np.ndarray, instruction: str) -> dict:
         """把 (image, instruction) 包装为 preprocessor 期望的原始 obs dict。
 
-        注意：这里只提供"原始"观测（HWC uint8 图像 + 状态向量 + 语言指令字符串），
-        batch、归一化、语言 tokenize 等由官方 preprocessor 管线完成，不在此手拼。
+        图像预处理（关键）：
+          输入  image : numpy uint8 (H, W, 3)
+          输出  tensor : torch float32 (1, 3, H, W)，值域 [0, 1]
+
+        必须做这一步，原因是这个权重保存的 preprocessor.json 里漏装了
+        "uint8 HWC → float32 BCHW / 255" 的转换步骤。直接喂 uint8 HWC 会
+        让 normalizer 尝试把 float32 stats 转 uint8 → overflow；并且即使
+        dtype 修好，stats 形状 (3,1,1) 与 HWC 布局广播会算错维度。
+
+        多相机 policy：同一张 image 复制到所有 VISUAL obs 键（占位用；
+        真实部署需 env 端传入各相机各自帧）。
+
+        注意：这里只做"原始"观测的 dtype/layout 转换，batch、归一化、tokenize
+        等由官方 preprocessor 管线完成，不在此手拼。
         """
-        # image 保持 (H, W, 3) uint8 numpy，交给 preprocessor 处理
-        obs: dict = {
-            self._resolved_image_key or self.image_key: image,
-            "observation.language_instruction": instruction,
-        }
+        import torch  # 仅此处局部 import，避免模块级 torch 依赖被无谓触发
+        img_tensor = torch.from_numpy(image)                          # (H, W, 3) uint8
+        img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0)         # (1, 3, H, W) uint8
+        img_tensor = img_tensor.contiguous().float().div_(255.0)       # (1, 3, H, W) float32 [0,1]
+
+        obs: dict = {}
+        for key in self._resolved_image_keys or [self.image_key]:
+            obs[key] = img_tensor
+        obs["observation.language_instruction"] = instruction
         # state 用零向量占位；真实部署需传入当前关节角
+        # 防御性：直接放到 self.device，不依赖 device_processor 是否正确处理。
+        # 否则若 saved preprocessor 的 device_processor 配置与 self.device 不一致，
+        # 或某步对 state 走了 numpy 兜底分支，state 会留 CPU，与 GPU 模型权重 matmul 时
+        # 触发 device mismatch（cuda:0 vs cpu）。
         state_dim = self._infer_state_dim()
-        obs[self._resolved_state_key or "observation.state"] = np.zeros(
-            (state_dim,), dtype=np.float32
+        obs[self._resolved_state_key or "observation.state"] = torch.zeros(
+            (state_dim,), dtype=torch.float32, device=self.device
         )
         return obs
 
     def _infer_state_dim(self) -> int:
-        """从 policy.config 推断 state 维度；失败时返回 14。"""
+        """从 policy.config 推断 state 维度；失败时返回 6（SO101 单臂 6 自由度）。"""
         try:
             cfg = getattr(self._policy, "config", None)
-            input_shapes = getattr(cfg, "input_shapes", None) or {}
-            for k in input_shapes:
+            input_features = getattr(cfg, "input_features", None) or {}
+            if not isinstance(input_features, dict):
+                return 6
+
+            from lerobot.configs.types import FeatureType
+
+            # 优先按 FeatureType 取 STATE 特征的 shape
+            for k, ft in input_features.items():
+                if getattr(ft, "type", None) == FeatureType.STATE:
+                    shape = getattr(ft, "shape", None)
+                    if shape and len(shape) >= 1:
+                        return int(shape[0])
+            # 退化：按 key 名匹配
+            for k, ft in input_features.items():
                 if "state" in k.lower():
-                    shape = input_shapes[k]
-                    if isinstance(shape, (list, tuple)) and len(shape) >= 1:
+                    shape = getattr(ft, "shape", None)
+                    if shape and len(shape) >= 1:
                         return int(shape[0])
         except Exception:
             pass
-        return 14
+        return 6
 
     # ------------------------------------------------------------------
     # BaseVLA.predict
@@ -457,13 +531,22 @@ class LeRobotVLA(BaseVLA):
         if action_np.ndim == 2:
             action_np = action_np[0]
 
-        if action_np.shape[0] < 7:
+        # 适配不同 action 维度的 policy：
+        #   7 维 → 原样填入 7 字段（含真实 gripper）
+        #   6 维 → 用配置的默认 gripper 补足第 7 维（SO101 等单臂无独立 gripper 输出）
+        #   其他 <6 → 抛错（连 6 维位置/姿态都不够，没法映射）
+        if action_np.shape[0] < 6:
             raise RuntimeError(
-                f"LeRobot policy 输出维度 {action_np.shape[0]} 不足 7 维，"
+                f"LeRobot policy 输出维度 {action_np.shape[0]} 不足 6 维，"
                 f"无法映射到 Action7D。请检查 model_path 与 action_dim 设置。"
             )
 
-        # 截前 7 维（已知语义不对齐风险，docstring 已说明）
-        first7 = action_np[:7].astype(float).tolist()
-        dx, dy, dz, drx, dry, drz, gripper = first7
+        if action_np.shape[0] >= 7:
+            first7 = action_np[:7].astype(float).tolist()
+            dx, dy, dz, drx, dry, drz, gripper = first7
+        else:
+            # 6 维：截 6 个位置/姿态维度 + gripper 用默认占位（模型没输出夹爪信号）
+            first6 = action_np[:6].astype(float).tolist()
+            dx, dy, dz, drx, dry, drz = first6
+            gripper = self._default_gripper
         return Action7D(dx, dy, dz, drx, dry, drz, gripper)

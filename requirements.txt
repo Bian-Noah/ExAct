@@ -27,11 +27,16 @@ pytest-cov>=7.0      # 覆盖率测量（Iteration 4 引入）
 # image_store 模块使用 imageio 做 PNG 编解码
 imageio>=2.30
 
-# ========================================
-# 阶段二（RTX 4060, CUDA）—— 额外安装:
-#   pip install -r requirements-stage2.txt
-# ========================================
-# torch>=2.2
-# transformers>=4.40
-# bitsandbytes>=0.43
-# accelerate>=0.27
+# ============================================================================
+# 阶段二（RTX 4060, CUDA）—— 额外依赖
+# ============================================================================
+# ⚠️  不要直接 pip install -r requirements-stage2.txt！
+#     完整安装约定、conda/pip 分工、禁止用法详见：
+#       requirements-stage2.txt  文件头部注释
+#
+# 概览：
+#   - PyTorch CUDA 由 conda 提供（pytorch 2.5.1 + cuda12.4），已装在 robot env
+#   - pip install 必须加 --no-deps，避免覆盖 conda 的 CUDA 版 torch
+#   - 优先 conda install -c conda-forge；只有 conda 没有的包（如 lerobot）才
+#     用 pip --no-deps
+# ============================================================================

@@ -60,7 +60,8 @@ class LerobotConfig:
     """LeRobot 后端 policy 特化配置（仅 vla.backend == "lerobot" 时生效）。
 
     Attributes:
-        policy_type: policy 类型，决定从 lerobot.common.policies 导入哪个类。
+        policy_type: policy 类型，决定从 lerobot.policies 导入哪个类（0.5 及更早
+            为 lerobot.common.policies）。
             常见值：act（轻量、默认）、diffusion、smolvla、pi0。
         device: 推理设备，默认 "cuda:0"。
         quantization: 量化等级，"none" | "8bit" | "4bit"。
