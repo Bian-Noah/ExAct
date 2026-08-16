@@ -10,6 +10,7 @@ set_recorder(None) 重置全局单例。PipelineResult 字段保持纯净。
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from typing import Any
 from agents.core import AgentResult
 from agents.agent import create_exact_agent, run_agent
 from agents.llm_factory import create_llm
+from agents.prompt import parse_attribution
 from config.loader import AppConfig
 from env.pybullet_env import PyBulletEnv
 from executor import Executor
@@ -157,6 +159,26 @@ def run_pipeline(
             agent,
             user_goal,
             max_react_rounds=config.agent.max_react_rounds,
+        )
+
+        # Iteration 7：agent 结果落盘——复用 log 事件写一条 JSON 行，
+        # 含成功与否/最终回答/失败归因/工具轨迹，事后按 type=agent_result 过滤。
+        attribution = parse_attribution(agent_result.final_answer)
+        recorder.emit(
+            "log",
+            message=json.dumps(
+                {
+                    "type": "agent_result",
+                    "success": agent_result.success,
+                    "user_goal": user_goal,
+                    "vla_backend": config.vla.backend,
+                    "final_answer": agent_result.final_answer,
+                    "attribution": attribution,
+                    "total_tool_calls": agent_result.total_tool_calls,
+                    "trajectory": [vars(t) for t in agent_result.trajectory],
+                },
+                ensure_ascii=False,
+            ),
         )
 
         # env_closed 暂记 False，finally 中 mutate 为 True

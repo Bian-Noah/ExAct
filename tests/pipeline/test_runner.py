@@ -403,3 +403,64 @@ def test_run_pipeline_injects_adapter_into_action_tool(monkeypatch):
 
     assert captured["adapter"] is not None
     assert callable(captured["adapter"])
+
+
+# ========== agent 结果落盘测试 ==========
+
+
+def test_run_pipeline_records_agent_result_json(monkeypatch):
+    """run_agent 后通过 log 事件写一条 JSON 结果行。
+
+    验证 JSON 含 type=agent_result / success / final_answer / attribution / trajectory。
+    """
+    import json
+
+    _patch_pipeline(monkeypatch)
+
+    # 用假 recorder 捕获 emit 调用（避免写真实 data/experiment 目录）
+    fake_recorder = MagicMock()
+    fake_recorder.start.return_value = "/tmp/fake_exp"
+    monkeypatch.setattr("pipeline.runner._build_recorder", lambda cfg: fake_recorder)
+    monkeypatch.setattr(
+        "pipeline.runner.set_recorder",
+        lambda r: None,
+    )
+
+    captured_emits = []
+
+    def spy_emit(event, **fields):
+        captured_emits.append((event, fields))
+
+    fake_recorder.emit.side_effect = spy_emit
+
+    monkeypatch.setattr(
+        "pipeline.runner.run_agent",
+        lambda *a, **kw: AgentResult(
+            success=False,
+            trajectory=[],
+            final_answer="✗ 本次执行未能获取图像。任务失败。\n失败归因：工具问题",
+            total_tool_calls=2,
+        ),
+    )
+
+    run_pipeline(_make_default_config())
+
+    log_msgs = [
+        fields["message"] for event, fields in captured_emits if event == "log"
+    ]
+    agent_result_line = None
+    for m in log_msgs:
+        try:
+            parsed = json.loads(m)
+        except json.JSONDecodeError:
+            continue  # 非 JSON 的普通日志（如 Pipeline started）跳过
+        if parsed.get("type") == "agent_result":
+            agent_result_line = m
+            break
+    assert agent_result_line is not None
+    payload = json.loads(agent_result_line)
+    assert payload["success"] is False
+    assert "失败归因：工具问题" in payload["final_answer"]
+    assert payload["attribution"] == ["工具问题"]
+    assert payload["total_tool_calls"] == 2
+    assert "trajectory" in payload

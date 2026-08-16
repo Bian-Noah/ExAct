@@ -228,9 +228,11 @@ def test_default_system_prompt_text_contract():
     - 包含 'observe 工具会返回'（明确告知会返回图像）
     - 包含「本次执行看到了图像」的肯定前缀（强制智能体声明是否看到图）
     - 包含「本次执行未能获取图像」的兜底前缀
+    - 包含「失败归因：」标记（失败时输出归因行）
     - 不包含旧版 '如果当前系统暂未提供图像能力'（已替换）
     """
     assert "observe 工具会返回" in DEFAULT_SYSTEM_PROMPT
     assert "✓ 本次执行看到了图像" in DEFAULT_SYSTEM_PROMPT
     assert "✗ 本次执行未能获取图像" in DEFAULT_SYSTEM_PROMPT
+    assert "失败归因：" in DEFAULT_SYSTEM_PROMPT
     assert "如果当前系统暂未提供图像能力" not in DEFAULT_SYSTEM_PROMPT
