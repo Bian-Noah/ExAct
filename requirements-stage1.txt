@@ -1,0 +1,42 @@
+# ExAct 项目依赖
+# 阶段一（M4 Mac，无 GPU）
+# 安装步骤:
+#   conda install -c conda-forge pybullet    # pybullet 需用 conda 安装（pip 无 macOS ARM64 预编译 wheel）
+#   pip install -r requirements.txt          # 其余依赖用 pip
+
+# --- 基础 ---
+pyyaml>=6.0
+numpy>=1.24
+Pillow>=10.0
+
+# --- 仿真环境 ---
+# pybullet 通过 conda-forge 安装，不在此列出
+gymnasium>=0.29
+
+# --- LLM 大脑 ---
+langchain>=0.3
+langchain-core>=0.3
+langchain-openai>=0.3
+requests>=2.31
+
+# --- 测试 ---
+pytest>=8.0
+pytest-cov>=7.0      # 覆盖率测量（Iteration 4 引入）
+
+# --- 图片存储（Iteration 4）---
+# image_store 模块使用 imageio 做 PNG 编解码
+imageio>=2.30
+
+# ============================================================================
+# 阶段二（RTX 4060, CUDA）—— 额外依赖
+# ============================================================================
+# ⚠️  不要直接 pip install -r requirements-stage2.txt！
+#     完整安装约定、conda/pip 分工、禁止用法详见：
+#       requirements-stage2.txt  文件头部注释
+#
+# 概览：
+#   - PyTorch CUDA 由 conda 提供（pytorch 2.5.1 + cuda12.4），已装在 robot env
+#   - pip install 必须加 --no-deps，避免覆盖 conda 的 CUDA 版 torch
+#   - 优先 conda install -c conda-forge；只有 conda 没有的包（如 lerobot）才
+#     用 pip --no-deps
+# ============================================================================

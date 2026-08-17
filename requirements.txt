@@ -1,42 +1,55 @@
-# ExAct 项目依赖
-# 阶段一（M4 Mac，无 GPU）
-# 安装步骤:
-#   conda install -c conda-forge pybullet    # pybullet 需用 conda 安装（pip 无 macOS ARM64 预编译 wheel）
-#   pip install -r requirements.txt          # 其余依赖用 pip
-
-# --- 基础 ---
-pyyaml>=6.0
-numpy>=1.24
-Pillow>=10.0
+# ============================================================================
+# ExAct 依赖清单 —— 统一 pip 安装（Linux + CUDA + Python 3.12）
+# ============================================================================
+#
+# 【安装顺序约定（重要）】
+#   1. 先装 CUDA 版 PyTorch。lerobot 0.6.x 强制 torch>=2.7,<2.12、
+#      torchvision>=0.22,<0.27。不要在下面的 requirements 里重复 pip install
+#      torch/torchvision，否则会被覆盖为 PyPI 默认的 CPU/最新版：
+#        pip install "torch>=2.7,<2.12" "torchvision>=0.22,<0.27" \
+#            --index-url https://download.pytorch.org/whl/cu128
+#      cu128 按显卡驱动可选 cu124/cu126，对照表见 https://pytorch.org/get-started/locally/
+#   2. 再装本文件：pip install -r requirements.txt
+#      此时 lerobot 看到 torch 已满足约束，不会重装。
+#   3. pybullet 在 Python 3.12 上无预编译 wheel（PyPI 最新 3.2.7 仅到 cp311），
+#      pip 会走源码编译，需要本机有编译工具链；cmake 由 lerobot 依赖自动带上。
+#      编译耗时数分钟，属正常现象。
+#   4. 装完跑 pip check 验证依赖闭环；缺啥补啥（普通 pip install，不要加
+#      --no-deps，让 pip 自行协调传递依赖）。
+#
+# 【版本策略】
+#   - lerobot：项目代码锁定语义 >=0.6（用到 0.6 引入的 make_pre_post_processors
+#     API，0.4 无此入口；0.6.1 实测验证）。0.6.1 要求 Python>=3.12。
+#   - torch / torchvision：不写在此文件（避免覆盖 CUDA 版），约束见第 1 步命令。
+#   - 其余依赖不指定版本，由 pip resolver 统一协调；numpy 会被 lerobot 约束在
+#     >=2.0,<2.3，无需手工处理。
+# ============================================================================
 
 # --- 仿真环境 ---
-# pybullet 通过 conda-forge 安装，不在此列出
-gymnasium>=0.29
+pybullet                 # 物理仿真本体；Python 3.12 需源码编译（见文件头第 3 条）
 
-# --- LLM 大脑 ---
-langchain>=0.3
-langchain-core>=0.3
-langchain-openai>=0.3
-requests>=2.31
+# --- 图像处理 ---
+Pillow                   # PNG/JPEG 编码解码（observe 工具）
+imageio                  # 异步 PNG IO（image_store 持久化，imageio.v3 API）
+
+# --- 配置加载 ---
+PyYAML                   # 加载 yaml 配置文件
+
+# --- LLM / Agent 编排 ---
+langchain-core           # BaseTool、Message 类型（Agent 工具契约）
+langchain-openai         # ChatOpenAI（兼容 OpenAI 接口的 LLM）
+langgraph                # Agent 状态图运行时
+pydantic                 # 工具入参 schema 校验
+
+# --- VLA 模型后端 ---
+# [smolvla] extra 同时带 SmolVLA/pi0 需要的 transformers、accelerate、num2words，
+# 基础 ACT / Diffusion / VQ-BeT 也涵盖在内。纯 ACT 场景可改回 lerobot 减负。
+lerobot[smolvla]
+
+# --- VLA 量化（4bit/8bit，CUDA 下可用；代码要求 >=0.43）---
+bitsandbytes
+accelerate
 
 # --- 测试 ---
-pytest>=8.0
-pytest-cov>=7.0      # 覆盖率测量（Iteration 4 引入）
-
-# --- 图片存储（Iteration 4）---
-# image_store 模块使用 imageio 做 PNG 编解码
-imageio>=2.30
-
-# ============================================================================
-# 阶段二（RTX 4060, CUDA）—— 额外依赖
-# ============================================================================
-# ⚠️  不要直接 pip install -r requirements-stage2.txt！
-#     完整安装约定、conda/pip 分工、禁止用法详见：
-#       requirements-stage2.txt  文件头部注释
-#
-# 概览：
-#   - PyTorch CUDA 由 conda 提供（pytorch 2.5.1 + cuda12.4），已装在 robot env
-#   - pip install 必须加 --no-deps，避免覆盖 conda 的 CUDA 版 torch
-#   - 优先 conda install -c conda-forge；只有 conda 没有的包（如 lerobot）才
-#     用 pip --no-deps
-# ============================================================================
+pytest
+pytest-cov
