@@ -178,14 +178,19 @@ class LeRobotVLA(BaseVLA):
             pass
 
         # 新增：VLA 类 policy + 量化配置 → 加载后 post-quantization
-        if self.quantization in ("8bit", "4bit") and self._is_vla_policy():
-            self._apply_quantization()
+        # 量化/处理器/obs 探测任何一步失败都把 _policy/_preprocessor/_postprocessor
+        # 全部清空并重新抛出，避免半成品状态让下次 predict 撞 NoneType。
+        try:
+            if self.quantization in ("8bit", "4bit") and self._is_vla_policy():
+                self._apply_quantization()
 
-        # 创建官方 pre/post 处理器管线（离线优先，不需要外部数据集 stats）
-        self._build_processors()
-
-        # 从 policy.config 自动探测 obs 键
-        self._resolve_obs_keys()
+            self._build_processors()
+            self._resolve_obs_keys()
+        except Exception:
+            self._policy = None
+            self._preprocessor = None
+            self._postprocessor = None
+            raise
 
         self._log.info("LeRobot 懒加载完成")
 
@@ -447,6 +452,10 @@ class LeRobotVLA(BaseVLA):
         obs: dict = {}
         for key in self._resolved_image_keys or [self.image_key]:
             obs[key] = img_tensor
+        # SmolVLA 等 VLA 类 policy 的 TokenizerProcessorStep 通过 complementary_data["task"]
+        # 读取任务说明；batch_to_transition 只抽顶层名为 "task" 的键，因此必须在顶层
+        # 同时放一份。observation.language_instruction 保留供其他后端（如 OpenVLA）使用。
+        obs["task"] = instruction
         obs["observation.language_instruction"] = instruction
         # state：优先用真实关节角（由 env.get_joint_state() 注入）；
         # None 或维度不匹配时回退到零向量占位（向后兼容）。

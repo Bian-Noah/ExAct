@@ -39,6 +39,8 @@ MAX_REACT_ROUNDS = 5
 # 达到上限后强制返回提示消息，让 LLM 基于现有信息回答
 MAX_TOOL_CALLS = 3
 
+_log = logging.getLogger(__name__)
+
 
 # 扩展 MessagesState：增加 tool_call_count 字段
 class _AgentState(MessagesState):
@@ -119,7 +121,12 @@ def create_exact_agent(
                     # 工具返回 list[dict] 时 ToolMessage.content 保持原 list 形态（多模态）
                     content = tool.invoke(args)
                 except Exception as e:
-                    content = f"工具执行出错: {e}"
+                    # 工具异常：完整 traceback 走 logger.exception 落日志（含类型/堆栈），
+                    # f-string 同时拼接 type(e).__name__ + str(e) 写入 ToolMessage.content，
+                    # 保留原行为兼容性（上游测试断言 "boom" in content），且当 str(e) 为空
+                    # 时仍能暴露类型名（如 RuntimeError / ValueError 等），便于 LLM 反馈。
+                    _log.exception("工具执行出错：tool=%s args=%s", name, args)
+                    content = f"工具执行出错: {type(e).__name__}: {e}"
 
             results.append(ToolMessage(content=content, tool_call_id=tc_id))
 

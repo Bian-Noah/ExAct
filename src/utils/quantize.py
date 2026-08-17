@@ -71,7 +71,7 @@ def _replace_linear_with_bnb(model: nn.Module, bits: int, compute_dtype: torch.d
         _log.debug(f"官方 replace_with_bnb_linear 不可用，回退手写替换：{e}")
 
     # 手写回退：构造 bnb Linear 并迁移权重
-    bnb_linear_cls = bnb.nn.Linear4bit if bits == 4 else bnb.nn.Linear8bit
+    bnb_linear_cls = bnb.nn.Linear4bit if bits == 4 else bnb.nn.Linear8bitLt
     quant_type = "nf4" if bits == 4 else "int8"
     device = next(model.parameters()).device
 
@@ -82,14 +82,24 @@ def _replace_linear_with_bnb(model: nn.Module, bits: int, compute_dtype: torch.d
             continue
         parent_name, _, child_name = name.rpartition(".")
         parent = model.get_submodule(parent_name) if parent_name else model
-        quant_linear = bnb_linear_cls(
-            module.in_features,
-            module.out_features,
-            bias=module.bias is not None,
-            quant_type=quant_type,
-            compute_dtype=compute_dtype,
-            device=device,
-        )
+        # Linear4bit 接受 quant_type/compute_dtype；Linear8bitLt 不接受，
+        # 只接受 has_fp16_weights/threshold/index。按 bits 分派构造签名。
+        if bits == 4:
+            quant_linear = bnb_linear_cls(
+                module.in_features,
+                module.out_features,
+                bias=module.bias is not None,
+                quant_type=quant_type,
+                compute_dtype=compute_dtype,
+                device=device,
+            )
+        else:
+            quant_linear = bnb_linear_cls(
+                module.in_features,
+                module.out_features,
+                bias=module.bias is not None,
+                device=device,
+            )
         # 迁移权重：Linear4bit.from_linear / 手动拷贝（bnb 版本差异）
         try:
             quant_linear = bnb_linear_cls.from_linear(

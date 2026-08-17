@@ -189,3 +189,47 @@ def test_subclass_must_implement_predict():
 
     with pytest.raises(TypeError):
         BadVLA()
+
+
+# ========== _build_raw_obs 顶层 task 键回归测试 ==========
+
+def test_lerobot_vla_build_raw_obs_has_top_level_task_key():
+    """_build_raw_obs 必须把 instruction 同时放到顶层 "task" 键。
+
+    背景：SmolVLA 的 TokenizerProcessorStep 通过 complementary_data["task"]
+    取任务说明；batch_to_transition 只抽 batch 顶层名为 "task" 的键。
+    若缺失，predict 时会抛 KeyError("task")，action 工具会报
+    "工具执行出错: 'task'"。本测试防止再次回归。
+    """
+    pytest.importorskip("torch")
+    from executor.model.lerobot.lerobot_vla import LeRobotVLA
+
+    v = LeRobotVLA(model_path="x", action_dim=6, device="cpu")
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+    raw_obs = v._build_raw_obs(image, "pick up the yellow cube")
+    assert "task" in raw_obs, "顶层缺少 'task' 键，SmolVLA tokenizer 会 KeyError"
+    assert raw_obs["task"] == "pick up the yellow cube"
+    # observation.language_instruction 也保留（其他后端如 OpenVLA 需要）
+    assert raw_obs["observation.language_instruction"] == "pick up the yellow cube"
+
+
+def test_lerobot_vla_build_raw_obs_task_survives_batch_to_transition():
+    """raw_obs 经 lerobot batch_to_transition 后，task 进入 complementary_data。
+
+    端到端验证：直接走 lerobot 官方的 batch_to_transition，确保 complementary_data
+    含 task（即 TokenizerProcessorStep.get_task 不会再抛 KeyError）。
+    """
+    pytest.importorskip("torch")
+    pytest.importorskip("lerobot")
+    from executor.model.lerobot.lerobot_vla import LeRobotVLA
+    from lerobot.processor.converters import batch_to_transition
+    from lerobot.processor.pipeline import TransitionKey
+
+    v = LeRobotVLA(model_path="x", action_dim=6, device="cpu")
+    raw_obs = v._build_raw_obs(np.zeros((8, 8, 3), dtype=np.uint8), "grasp cube")
+    transition = batch_to_transition(raw_obs)
+    complementary = transition.get(TransitionKey.COMPLEMENTARY_DATA)
+    assert complementary is not None, "complementary_data 不应为 None"
+    assert complementary.get("task") == "grasp cube", (
+        f"complementary_data 缺 'task' 键，实际={complementary!r}"
+    )
