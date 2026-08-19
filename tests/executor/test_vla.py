@@ -16,7 +16,7 @@ from env.base import Action7D, ActionSpec
 from executor import BaseVLA as BaseVLA_re
 from executor import MockVLA as MockVLA_re
 from executor.model.base import BaseVLA, VLAOutput
-from executor.model.mock.mock_vla import MockVLA
+from executor.model.mock.mock_vla import JointMockVLA, MockVLA
 
 
 # ========== BaseVLA 抽象契约测试 ==========
@@ -171,11 +171,112 @@ def test_lerobot_vla_output_spec():
 
 
 def test_executor_reexports_basetypes():
-    """executor.__init__ 应 re-export BaseVLA / MockVLA，便于老代码兼容。"""
+    """executor.__init__ 应 re-export BaseVLA / MockVLA / JointMockVLA，便于老代码兼容。"""
     assert BaseVLA_re is BaseVLA
     assert MockVLA_re is MockVLA
     assert inspect.isabstract(BaseVLA_re) is True
     assert issubclass(MockVLA_re, BaseVLA_re)
+    # JointMockVLA 也从 executor 直接 re-export（与 MockVLA 对称）
+    from executor import JointMockVLA as JointMockVLA_re
+    assert JointMockVLA_re is JointMockVLA
+    assert issubclass(JointMockVLA_re, BaseVLA_re)
+
+
+# ========== JointMockVLA 行为测试 ==========
+
+
+def test_jointmockvla_can_instantiate():
+    """JointMockVLA 可实例化。"""
+    JointMockVLA(seed=0)
+
+
+def test_jointmockvla_predict_returns_vlaoutput():
+    """predict 返回 VLAOutput 且 values 是 np.ndarray 长度 6。"""
+    v = JointMockVLA(seed=0)
+    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    result = v.predict(image, "move")
+    assert isinstance(result, VLAOutput)
+    assert isinstance(result.values, np.ndarray)
+    assert result.values.shape == (6,)
+
+
+def test_jointmockvla_output_spec():
+    """JointMockVLA.output_spec → joint 6 维（与 so101 input_spec 等维）。"""
+    v = JointMockVLA(seed=0)
+    spec = v.output_spec
+    assert spec.space == "joint"
+    assert spec.dim == 6
+    # so101 的 input_spec 用 6 个 "joint" 组件名（无 gripper 维）
+    assert spec.gripper_index is None
+
+
+def test_jointmockvla_field_ranges():
+    """关节增量在 [-0.1, 0.1] rad，最后一维 gripper=0.5。"""
+    v = JointMockVLA(seed=0)
+    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    for i in range(10):
+        result = v.predict(image, f"instruction_{i}").values
+        for j in range(5):
+            assert -0.1 <= result[j] <= 0.1, f"joint[{j}] out of range"
+        assert result[5] == 0.5
+
+
+def test_jointmockvla_reproducible_same_seed_and_instruction():
+    """相同 seed + 相同 instruction 输出完全一致。"""
+    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    v1 = JointMockVLA(seed=42)
+    v2 = JointMockVLA(seed=42)
+    r1 = v1.predict(image, "move to red").values
+    r2 = v2.predict(image, "move to red").values
+    assert np.array_equal(r1, r2)
+    for j in range(6):
+        assert r1[j] == r2[j]
+
+
+def test_jointmockvla_different_instruction_different_output():
+    """不同 instruction 至少有一组输出不同。"""
+    v = JointMockVLA(seed=0)
+    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    instructions = ["move_a", "move_b", "move_c", "move_d", "move_e"]
+    outputs = [v.predict(image, ins).values for ins in instructions]
+    found_diff = False
+    for i in range(len(outputs)):
+        for j in range(i + 1, len(outputs)):
+            if not np.array_equal(outputs[i], outputs[j]):
+                found_diff = True
+                break
+        if found_diff:
+            break
+    assert found_diff
+
+
+def test_jointmockvla_ignores_image():
+    """相同 seed + instruction 下，image 变化不影响输出。"""
+    v = JointMockVLA(seed=0)
+    img_none = v.predict(None, "move").values
+    img_random = np.random.randint(0, 255, (20, 20, 3), dtype=np.uint8)
+    img_random_r = v.predict(img_random, "move").values
+    assert np.array_equal(img_none, img_random_r)
+
+
+def test_jointmockvla_passes_joint_to_joint_adapter():
+    """JointMockVLA(joint,6) + so101(joint,6) → joint_to_joint_transform 等维直通。"""
+    from utils.adapter import get_adapter
+
+    v = JointMockVLA(seed=0)
+    env_spec = ActionSpec("joint", ("joint",) * 6)
+    adapter = get_adapter(v.output_spec, env_spec)
+    assert adapter.__name__ == "joint_to_joint_transform"
+
+    class _FakeEnv:
+        @property
+        def input_spec(self):
+            return env_spec
+
+    out = v.predict(None, "move forward").values
+    mapped = adapter(out, _FakeEnv())
+    assert mapped.shape == (6,)
+    assert np.allclose(mapped, out)
 
 
 # ========== 新结构验证 ==========

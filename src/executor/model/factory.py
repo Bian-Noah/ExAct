@@ -6,7 +6,7 @@
 
 from config.loader import LLMConfig, VLAConfig
 from executor.model.base import BaseVLA
-from executor.model.mock.mock_vla import MockVLA
+from executor.model.mock.mock_vla import JointMockVLA, MockVLA
 
 
 def create_vla(vla_config: VLAConfig, llm_config: LLMConfig | None = None) -> BaseVLA:
@@ -23,12 +23,19 @@ def create_vla(vla_config: VLAConfig, llm_config: LLMConfig | None = None) -> Ba
 
     Raises:
         NotImplementedError: backend 为 llm_vla / small_vla / openvla 时。
-        ValueError: backend 为未知字符串时。
+        ValueError: backend 为未知字符串时，或 backend=mock 但 variant 不识别时。
     """
     backend = vla_config.backend
 
     if backend == "mock":
-        return MockVLA(seed=0)
+        variant = vla_config.mock.variant
+        if variant == "task":
+            return MockVLA(seed=0)
+        if variant == "joint":
+            return JointMockVLA(seed=0)
+        raise ValueError(
+            f"未知 mock variant: {variant!r}，期望 'task' | 'joint'"
+        )
 
     if backend == "lerobot":
         # 延迟导入：lerobot_vla 顶层 import torch，阶段一（M4，无 torch）不应被拖垮

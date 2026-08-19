@@ -16,7 +16,7 @@ from executor.build_input import build_vla_input
 from executor.check_done import check_done
 from executor.model.base import BaseVLA, VLAOutput
 from executor.model.factory import create_vla
-from executor.model.mock.mock_vla import MockVLA
+from executor.model.mock.mock_vla import JointMockVLA, MockVLA
 from utils.logging import setup_logging
 
 
@@ -186,6 +186,7 @@ __all__ = [
     "BaseVLA",
     "ExecResult",
     "Executor",
+    "JointMockVLA",
     "MockVLA",
     "VLAOutput",
     "build_vla_input",

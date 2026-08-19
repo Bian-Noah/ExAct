@@ -8,7 +8,7 @@ import pytest
 from config import LLMConfig, VLAConfig
 from executor.model.base import BaseVLA
 from executor.model.factory import create_vla
-from executor.model.mock.mock_vla import MockVLA
+from executor.model.mock.mock_vla import JointMockVLA, MockVLA
 
 
 def test_create_vla_mock_backend():
@@ -16,6 +16,36 @@ def test_create_vla_mock_backend():
     vla = create_vla(VLAConfig(backend="mock"))
     assert isinstance(vla, MockVLA)
     assert isinstance(vla, BaseVLA)
+    # 默认 variant="task"，应返回 MockVLA 而非 JointMockVLA
+    assert not isinstance(vla, JointMockVLA)
+
+
+def test_create_vla_mock_backend_default_variant_is_task():
+    """backend='mock' 不指定 mock.variant → 默认 variant='task' → MockVLA。"""
+    cfg = VLAConfig(backend="mock")
+    assert cfg.mock.variant == "task"  # 默认值
+    vla = create_vla(cfg)
+    assert isinstance(vla, MockVLA)
+    assert not isinstance(vla, JointMockVLA)
+
+
+def test_create_vla_mock_backend_variant_joint():
+    """backend='mock' + mock.variant='joint' → 返回 JointMockVLA。"""
+    from config.loader import MockConfig
+    cfg = VLAConfig(backend="mock", mock=MockConfig(variant="joint"))
+    vla = create_vla(cfg)
+    assert isinstance(vla, JointMockVLA)
+    assert isinstance(vla, BaseVLA)
+    # JointMockVLA 与 MockVLA 是兄弟类（都继承 BaseVLA）
+    assert not isinstance(vla, MockVLA)
+
+
+def test_create_vla_mock_backend_unknown_variant_raises():
+    """backend='mock' + mock.variant='invalid' → 抛 ValueError，错误信息含 '未知 mock variant'。"""
+    from config.loader import MockConfig
+    cfg = VLAConfig(backend="mock", mock=MockConfig(variant="invalid"))
+    with pytest.raises(ValueError, match="未知 mock variant"):
+        create_vla(cfg)
 
 
 def test_create_vla_llm_vla_not_implemented():

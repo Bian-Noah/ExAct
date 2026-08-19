@@ -14,6 +14,10 @@ vla:
                                   #             "lerobot/smolvla_base"
                                   #             "lerobot/pi0_libero_finetuned"
   max_steps: 50                   # 单个动作最多执行步数
+  mock:                           # 仅 backend: mock 时生效（mock 特化配置）
+    variant: task                 # task | joint
+                                  #   task:  默认 7 维 task 空间（MockVLA，用于 Panda）
+                                  #   joint: 6 维 joint 空间（JointMockVLA，用于 so101）
   lerobot:                        # 仅 backend: lerobot 时生效（policy 特化配置）
     policy_type: act              # act | diffusion | smolvla | pi0 | vqbet | pi0fast
     device: "cuda:0"              # 推理设备

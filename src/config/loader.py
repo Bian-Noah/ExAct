@@ -79,10 +79,25 @@ class LerobotConfig:
 
 
 @dataclass
+class MockConfig:
+    """Mock VLA 后端特化配置（仅 vla.backend == "mock" 时生效）。
+
+    与 LerobotConfig 同模式：顶层 backend 决定大类，嵌套特化字段决定细节。
+
+    Attributes:
+        variant: mock 实现变体。
+            - "task"：默认，task 空间 7 维（MockVLA，用于 Panda 链路）
+            - "joint"：joint 空间 6 维（JointMockVLA，用于 so101 链路）
+    """
+    variant: str = "task"
+
+
+@dataclass
 class VLAConfig:
     backend: str = "mock"
     model_path: Optional[str] = None
     max_steps: int = 50
+    mock: MockConfig = field(default_factory=MockConfig)
     lerobot: LerobotConfig = field(default_factory=LerobotConfig)
 
 
