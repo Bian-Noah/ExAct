@@ -73,3 +73,35 @@ class TestPromptMentionsExploreTool:
     def test_explore_tool_described(self):
         # explore 工具应在提示词中描述
         assert "explore" in DEFAULT_SYSTEM_PROMPT
+
+
+# ========== iter9-extend：VLA 能力边界 + 探索习惯 ==========
+
+
+class TestVLACapabilityBoundary:
+    """提示词应明确告诉 LLM：VLA 不擅长坐标，应多用相对位置 + 探索。"""
+
+    def test_mentions_coordinate_limitation(self):
+        # 明确告诉 LLM VLA 不擅长精确坐标
+        assert "坐标" in DEFAULT_SYSTEM_PROMPT
+
+    def test_mentions_relative_position_recommendation(self):
+        # 推荐用相对位置而不是精确坐标
+        assert "相对位置" in DEFAULT_SYSTEM_PROMPT
+
+    def test_mentions_vla_capability_scope(self):
+        # 告诉 LLM VLA 能做什么（简单动作）
+        assert "VLA 能力边界" in DEFAULT_SYSTEM_PROMPT or "能力边界" in DEFAULT_SYSTEM_PROMPT
+
+
+class TestExplorationEncouragement:
+    """不确定时应鼓励 LLM 用 explore.write_note 记录。"""
+
+    def test_mentions_uncertainty_should_explore(self):
+        # 遇到拿不准要先 write_note
+        assert "不确定" in DEFAULT_SYSTEM_PROMPT
+
+    def test_write_note_for_uncertainty(self):
+        # 在不确定时显式提到 write_note
+        # （提示词中出现多次 write_note，至少包含"对...先 write_note"模式）
+        assert DEFAULT_SYSTEM_PROMPT.count("write_note") >= 2
