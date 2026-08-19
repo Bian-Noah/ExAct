@@ -1,6 +1,11 @@
 """ActionTool + target_pos 正则解析。
 
 提供 parse_target_pos 函数和 ActionTool（langchain_core.tools.BaseTool 子类）。
+
+iter9-verify-explore-design：在 _run 入口接入 validate_instruction，
+拦截不合规指令并返回含失败原因的拒绝消息（不执行动作）。
+
+iter9-extend（English-only）：指令必须全英文，描述与示例同步改为英文。
 """
 
 from __future__ import annotations
@@ -12,16 +17,18 @@ from typing import Any, Optional, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from utils.verify import validate_instruction
+
 
 def parse_target_pos(instruction: str) -> Optional[tuple[float, float, float]]:
-    """从自然语言指令中解析目标坐标。
+    """从英文指令中解析目标坐标。
 
     支持两种格式：
     1. "x=0.5, y=0.0, z=0.4" 或 "x: 0.5" （需至少 3 个坐标）
-    2. "坐标 (0.5, 0.0, 0.3)" 或 "(0.5, 0, 0.4)" 或中文括号
+    2. "position (0.5, 0.0, 0.3)" 或 "(0.5, 0, 0.4)"
 
     Args:
-        instruction: 自然语言动作指令。
+        instruction: 英文动作指令。
 
     Returns:
         (x, y, z) tuple 或 None（无法解析时）。
@@ -56,11 +63,13 @@ def parse_target_pos(instruction: str) -> Optional[tuple[float, float, float]]:
 class ActionInput(BaseModel):
     """ActionTool 输入参数。"""
 
-    instruction: str = Field(description="自然语言动作指令，例如 '移动到红色方块上方'")
+    instruction: str = Field(
+        description="English action instruction, e.g. 'pick red cube' or 'move to (0.5, 0, 0.3)'"
+    )
 
 
 class ActionTool(BaseTool):
-    """对场景执行自然语言动作指令。
+    """执行英文自然语言动作指令。
 
     内部调用 Executor.run_action，返回 ExecResult.message。
     会尝试从 instruction 中解析目标坐标传给 executor。
@@ -68,8 +77,8 @@ class ActionTool(BaseTool):
 
     name: str = "action"
     description: str = (
-        "对场景执行自然语言动作指令，"
-        "例如『移动到红色方块上方』『夹取红色方块』。"
+        "Execute an English natural language action instruction on the scene, "
+        "e.g. 'pick red cube' or 'move to (0.5, 0, 0.3)'."
     )
     args_schema: Type[BaseModel] = ActionInput
     env: Any = None
@@ -100,12 +109,18 @@ class ActionTool(BaseTool):
             instruction: 自然语言动作指令字符串。
 
         Returns:
-            ExecResult.message 字符串（成功/超时/失败描述）。
+            ExecResult.message 字符串（成功/超时/失败描述），或不合规指令的拒绝消息。
         """
         _log = logging.getLogger("action")
         _log.info(f"action 调用开始 instruction={instruction}")
         if not instruction or not instruction.strip():
             return "错误：动作指令不能为空"
+
+        # iter9：smolVLA 指令校验拦截（只拒绝不修，返回原因让 LLM 自我纠正）
+        reason = validate_instruction(instruction)
+        if reason is not None:
+            _log.info(f"action 被指令校验拒绝 reason={reason}")
+            return f"指令不符合 smolVLA 规范：{reason}"
 
         # 尝试从指令中解析目标坐标
         target_pos = parse_target_pos(instruction)

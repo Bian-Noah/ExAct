@@ -19,11 +19,7 @@
 | 5     | LLM 多模态视觉接入                  | LLM 通过 URL 看到图片（多模态输入），observe 工具返回图片 URL      | Mock               | M4 Air      | ✅ 已完成     |
 | 6     | VLA 链路验证                      | 验证 VLA 已能从 env 拿到图（链路通了，无需 LLM 介入）           | Mock               | M4 Air      | ⏳ 待启动     |
 | 7     | LLM-VLA 适配器                      | 用 MiniMax-M3 本身作为伪 VLA，机械臂真正响应指令                 | **LLMVLA**         | M4 Air      | ⏳ 待启动     |
-| 8     | 探索机制 v1 - 基础探索              | 先探索再执行的双阶段流程跑通                                     | LLMVLA             | M4 Air      | ⏳ 待启动     |
-| 9     | 探索机制 v2 - 策略化探索与知识利用  | 提升探索质量，验证知识传递效果                                   | LLMVLA             | M4 Air      | ⏳ 待启动     |
-| 10    | 评估框架与对照实验                  | 量化探索收益，跑首批对照实验                                     | LLMVLA → SmallVLA  | M4 Air      | ⏳ 待启动     |
-| 11    | 小型 VLA 接入                       | 训练真实小型 VLA，替换 LLM-VLA                                   | **SmallVLA**       | M4 Air      | ⏳ 待启动     |
-| 12    | OpenVLA 接入与正式实验              | 探索机制完善后，接入 OpenVLA 做正式对照                          | **OpenVLA-7B 4bit** | 4060 笔记本 | ⏳ 待启动     |
+| 9     | smolVLA 指令契约 + 基础探索         | action 指令拦截 + 系统提示词约束 + 笔记本式探索工具               | LLMVLA             | M4 Air      | ⏳ 待启动     |
 
 > 拆分说明：原 Iteration 4「图片存储器与 LLM 视觉能力」任务过多（包含图片存储、observe 改造、action 改造、executor 链路、BaseVLA 契约、config 扩展、pipeline 集成 7 件事），现拆为 4 / 5 / 6 三个迭代。原 Iteration 5（LLM-VLA 适配器）顺延为新 Iteration 7。原 Iteration 3 数据保存方案由"扩展管线接口"改为"ExperimentRecorder 一体化"——业务代码 `recorder.emit(...)` 埋点，由 `src/experiment/recorder.py` 一个类同时负责收集与保存三类数据（`log` → `experiment.log`、`observe_image` → `observer/*.png`、`video_frame` 占位）。每次实验产物在 `ExAct/data/experiment/{时间戳}/` 下。Iteration 6 原计划"image_url 传递链路"反思后改为"VLA 链路验证"——VLA 已能从 env 拿到图，无需 LLM 介入传递，仅补一个 print 验证链路工作。详见下文。
 
@@ -77,9 +73,9 @@
        ├── llm_vla/
        │   └── llm_vla.py        # LLMVLA（Iteration 7 实现）
        ├── small_vla/
-       │   └── small_vla.py      # SmallVLA（Iteration 11 实现）
+       │   └── small_vla.py      # SmallVLA（规划中）
        └── openvla/
-           └── openvla_adapter.py # OpenVLA 适配器（Iteration 12 实现）
+           └── openvla_adapter.py # OpenVLA 适配器（规划中）
      ```
    - `executor/vla.py` 原文件删除，内容拆分到 `model/base.py` + `model/mock/`
    - `executor/model/factory.py` 新增 `create_vla(vla_config, llm_config=None) -> BaseVLA`
@@ -192,7 +188,7 @@
 
 ### 背景
 
-Iteration 10 要做对照实验，需要能复盘每次实验。当前 pipeline / executor / tools 只负责跑通，**没有产物**。
+后续要做对照实验，需要能复盘每次实验。当前 pipeline / executor / tools 只负责跑通，**没有产物**。
 
 需求简单：
 
@@ -337,7 +333,7 @@ ExAct/data/experiment/
 ### 后续迭代如何用
 
 - **人工复盘**：打开 `experiment.log` 看每步干了什么，看 `observer/*.png` 看环境如何变化
-- **Iteration 10 对照实验**：批量跑实验后 `grep -l "Pipeline finished, success=true" */experiment.log` 统计成功率
+- **后续对照实验**：批量跑实验后 `grep -l "Pipeline finished, success=true" */experiment.log` 统计成功率
 - **新事件类型**：在 `EVENT_HANDLERS` 表里加一行 + 一个 `_handle_xxx` 方法，业务代码即可调用
 
 ---
@@ -517,7 +513,7 @@ VLA 不应该被 LLM 喂图，LLM 也不应该传递图给 VLA。
 ### 后续迭代如何用
 
 - **Iteration 7（LLMVLA）**：实现 LLMVLA 时确认它从 env.get_obs 拿语义信息（ee_pos / object_info），不看 image
-- **Iteration 11/12（SmallVLA / OpenVLA）**：接真实 VLA 时，链路已经验证通，executor 喂 env rgb 即可
+- **后续真实 VLA（SmallVLA / OpenVLA）**：接真实 VLA 时，链路已经验证通，executor 喂 env rgb 即可
 - **链路 print**：可作为长期健康检查保留，或迁到 ExperimentRecorder 的 log 事件
 
 ---
@@ -548,7 +544,7 @@ LLMVLA.predict(image, instruction):
 调用 MiniMax-M3 API → 解析 JSON → Action7D
 ```
 
-**注意**：LLMVLA 可以不看图片（image 参数忽略），因为它接收的是语义化的 ee_pos + object_info。但接口遵守 `BaseVLA.predict(image, instruction)` 契约，image 参数保留。真正必须看图的是 SmallVLA/OpenVLA（Iteration 11/12）。
+**注意**：LLMVLA 可以不看图片（image 参数忽略），因为它接收的是语义化的 ee_pos + object_info。但接口遵守 `BaseVLA.predict(image, instruction)` 契约，image 参数保留。真正必须看图的是 SmallVLA/OpenVLA（后续规划）。
 
 ### 任务
 
@@ -581,206 +577,63 @@ LLMVLA.predict(image, instruction):
 
 ---
 
-## Iteration 8: 探索机制 v1 - 基础探索
+## Iteration 9: smolVLA 指令契约 + 基础探索
 
-**目标**：实现"先探索再执行"的双阶段流程，验证探索-执行闭环。
+**状态**：⏳ 待启动
 
-### 背景
-
-项目核心创新点是探索-执行双阶段。Iteration 8 实现最基础的探索能力：让 LLM 能主动调用探索工具，记录环境知识，并在执行阶段利用这些知识。
-
-### 任务
-
-1. **新增探索工具**
-
-   - `explore(direction: str)`：控制机械臂在指定方向移动，记录沿途观测
-   - `probe(object: str, action: str)`：对特定物体执行探测操作（推/碰/试抓），记录结果
-   - 工具继承 LangChain BaseTool，集成到 Agent
-2. **实现探索知识库**
-
-   - `ExploreState` 数据结构：记录探索历史（动作、观测、结果）
-   - `KnowledgeBase` 类：`record()` / `get_summary()` / `summarize()`
-   - 探索结束后 LLM 生成自然语言环境知识摘要
-3. **双阶段 Pipeline**
-
-   - `pipeline.run(explore_first=True)`：先探索再执行
-   - 探索阶段：LLM 自主调用 explore/probe，积累环境知识
-   - 执行阶段：将知识摘要注入系统提示词，指导 LLM 规划动作
-   - `pipeline.run(explore_first=False)`：直接执行（对照组）
-4. **扩展 Agent 系统提示词**
-
-   - 探索阶段提示词：鼓励 LLM 主动探索物理特性、工作空间
-   - 执行阶段提示词：注入探索知识，引导利用经验
-
-### 交付物
-
-- `src/explore/` 模块（工具 + 知识库）
-- 双阶段 pipeline
-- 探索知识摘要样例
-
----
-
-## Iteration 9: 探索机制 v2 - 策略化探索与知识利用
-
-**目标**：提升探索质量，验证探索知识对 VLA 执行的实质性提升。
-
-### 任务
-
-1. **物理特性探测**
-
-   - 推力-位移关系：记录施加动作与物体位移的对应关系
-   - 夹取测试：尝试不同夹爪力度，记录成功/失败
-   - 摩擦系数估计：通过多次推动推断
-2. **工作空间探测**
-
-   - 机械臂运动边界映射：各方向最大可达位置
-   - 可达性图谱：哪些区域机械臂能稳定操作
-3. **结构化环境知识**
-
-   - 物体特性表：每个物体的重量、摩擦、可抓性评分
-   - 空间约束表：工作空间边界、可达区域
-   - 操作策略表：针对不同物体的推荐操作方式
-4. **探索-执行知识传递优化**
-
-   - 子指令增强：将环境知识融入 LLM 下发给 VLA 的子指令
-     - 无知识："移动到红色方块上方"
-     - 有知识："缓慢移动到红色方块上方（方块较滑，避免碰推）"
-   - 对比不同知识传递方式的效果
-5. **失败重规划机制**
-
-   - 执行失败后，LLM 分析失败原因（距离不够/碰落物体/夹爪未对准）
-   - 基于探索经验调整策略（换角度/换力度/换路径）
-
-### 交付物
-
-- 策略化探索工具集
-- 结构化环境知识表示
-- 失败重规划 demo
-- 知识传递效果对比记录
-
----
-
-## Iteration 10: 评估框架与对照实验
-
-**目标**：建立量化评估体系，跑首批对照实验，用 LLMVLA 验证探索机制的效果。
-
-### 任务
-
-1. **任务集定义**
-
-   - 简单抓取放置："把红色方块放到蓝色区域"
-   - 多物体操作："把两个方块分别放到左右两侧"
-   - 精细操控："把方块叠到杯子上"
-   - 工具使用："用推的方式把方块移到目标位置"
-   - 每类 20 个任务实例（随机初始化）
-2. **评估指标实现**
-
-   - 任务成功率（done_criteria 判定）
-   - 平均执行步数（VLA 调用次数）
-   - 探索收益（有探索 vs 无探索成功率差）
-   - 失败恢复率（失败后重规划并成功的比例）
-3. **对照实验框架**
-
-   | 实验组   | 探索阶段       | 是否利用知识 | 预期作用                         |
-   | -------- | -------------- | ------------ | -------------------------------- |
-   | 基线组   | 无             | 无           | 纯 VLA 泛化基线                  |
-   | 实验组   | 有             | 有           | 验证探索-执行整体效果            |
-   | 消融组 A | 有             | 无           | 验证提升来自"利用知识"而非"热身" |
-   | 消融组 B | 无（多走步数） | 无           | 控制总步数，排除"多走几步"的干扰 |
-4. **实验自动化**
-
-   - 批量实验脚本：自动跑 N 次任务，记录结果
-   - 结果统计与可视化：成功率柱状图、步数分布图
-   - 实验报告生成：自动汇总数据到 markdown
-   - 集成 Iteration 3 的数据保存能力，每次实验自动持久化
-
-### 交付物
-
-- `src/evaluation/` 模块（任务集 + 指标 + 实验运行器）
-- 首批对照实验数据（基于 LLMVLA）
-- 实验报告初稿
-
----
-
-## Iteration 11: 小型 VLA 接入
-
-**目标**：训练并接入真实的小型 VLA，替换 LLM-VLA。验证 LLMVLA 上验证过的探索机制在真实小 VLA 上是否同样有效。
+**目标**：让 LLM 大脑下发给 VLA 脊髓的指令符合 smolVLA 指令规范，同时引入最简探索工具（笔记本），让模型积累指令经验。为后续探索机制迭代打地基。
 
 ### 背景
 
-LLM-VLA 能跑通流程，但它本质上也是同一个 LLM，不是真正的"脊髓级"模型——它直接"看到" ee_pos 和 object_info 语义化信息，而真实 VLA 只能看图像 + 指令。Iteration 11 引入真正的小 VLA，保证研究结论的有效性。
+`docs/knowledage/smolVLA-insturction.md` 定义了 VLA 任务标注的提示词原则——smolVLA 模型生成语言指令时必须遵守：
+
+> 生成一句极简短、清晰、完整的单句，描述机械臂执行的动作（最多 30 个字符）。句子必须直接以动作动词开头，例如 "拿起""放置""打开" 等。不要加入冗余词汇。
+
+当前链路中 LLM 大脑通过 `action` 工具下发指令，`ActionTool._run` 把 LLM 原话直接传给 `executor.run_action`，再经 `build_vla_input` 原样透传给 `VLA.predict`——**没有任何地方强制这条格式契约**。LLM 可能输出长句、多句、无动词开头的指令，与 VLA 脊髓（尤其 LLMVLA 及未来的 SmallVLA/OpenVLA）的输入形态不匹配。
+
+本迭代做三件事：**拦截**（action 工具边界校验）、**约束**（指令要求写入系统提示词）、**探索 v0**（最简笔记本工具）。
 
 ### 任务
 
-1. **设计轻量级 VLA 架构**
+1. **action 工具基本拦截**
 
-   - 基于 CNN（图像编码）+ MLP（指令 embedding + 动作解码）
-   - 参数量 < 10M，M4 Air CPU 可推理（单次推理 < 100ms）
-   - 输入：场景图像 (H,W,3) + 自然语言指令
-   - 输出：7D 动作（dx/dy/dz/drx/dry/drz/gripper）
-2. **训练数据生成**
+   - 在 `ActionTool._run` 内、`executor.run_action` 之前增加指令校验：
+     - 规则 1：以动作动词开头（拿起 / 放置 / 打开 / 移动 / 推 / 夹取 等白名单或词性判断）
+     - 规则 2：单句（不含句号/换行/连接词拼接的多句）
+     - 规则 3：长度不超过 smolVLA 上限（30 字符；中文按字符计）
+   - **不修指令，只拒绝**：判定不合规时返回错误消息（如"指令不符合 smolVLA 规范：不是动词开头 / 超长 / 多句，请重新下发简洁指令"），**不执行动作**，让 LLM 在下一轮重新调用
+   - 校验规则收敛为纯函数（如 `validate_instruction(instruction) -> Optional[str]`，返回不合规原因或 None），便于单元测试
+   - 保留 `parse_target_pos` 现有解析逻辑，两者独立、先后执行
+2. **指令要求加入系统提示词**
 
-   - 用 PyBullet 仿真自动生成 (图像, 指令, 动作) 三元组
-   - 简单任务：移动到目标位置（用 IK 计算参考动作）
-   - 数据增强：多视角、多物体颜色、随机初始位姿
-3. **实现 SmallVLA 类**（`executor/model/small_vla/small_vla.py`）
+   - 在 `src/agents/prompt.py` 的 `DEFAULT_SYSTEM_PROMPT` 中，`action` 工具描述处补充指令规范：
+     - "action 的 instruction 必须是一句以动作动词开头的简短单句（≤30 字符），如『拿起红色方块』；不符合规范会被拒绝并返回错误，请重新下发"
+   - 让 LLM 在源头尽量合规，减少拦截器命中次数（拦截器是契约强制点，提示词是第一道约束）
+3. **最简探索工具（笔记本）**
 
-   - 继承 `BaseVLA`，实现 `predict(image, instruction) -> Action7D`
-   - **必须使用 image 参数**（与 LLMVLA 不同，SmallVLA 从像素提取信息）
-   - 支持模型加载/保存（从 `vla_config.model_path` 读路径）
-   - 注册到 factory：backend == `"small_vla"` 时构造返回
-4. **验证基础闭环与探索迁移**
-
-   - SmallVLA 基础闭环：LLM 下发指令 → SmallVLA 产生动作 → 机械臂移动
-   - 探索机制迁移：将 Iteration 7 在 LLMVLA 上验证的探索流程应用到 SmallVLA
-   - 对比 LLMVLA vs SmallVLA 在相同探索机制下的性能差异
-
-### 交付物
-
-- `src/executor/model/small_vla/small_vla.py` 实现
-- `executor/model/factory.py` 中 small_vla backend 注册
-- 训练脚本 `scripts/train_small_vla.py`
-- 训练数据生成脚本
-- SmallVLA 探索机制迁移验证报告
-
----
-
-## Iteration 12: OpenVLA 接入与正式实验
-
-**目标**：探索机制完全成熟后，在 4060 笔记本上接入 OpenVLA，做最终正式对照实验，形成结论。
-
-### 任务
-
-1. **实现 OpenVLA 适配器**（`executor/model/openvla/openvla_adapter.py`）
-
-   - 继承 `BaseVLA`，封装 OpenVLA-7B 模型
-   - 支持 4bit 量化加载（适配 8GB 显存，模型路径从 `vla_config.model_path` 读）
-   - 注册到 factory：backend == `"openvla"` 时构造返回
-2. **部署与测试**
-
-   - 在 4060 笔记本部署 OpenVLA-7B 4bit
-   - 验证基础闭环（LLM + OpenVLA）
-3. **正式实验**
-
-   - LLMVLA vs SmallVLA vs OpenVLA，各有探索 vs 无探索
-   - 6 组对照，每组 20 次/任务类
-   - 核心对比：探索机制对不同规模 VLA 的收益差异
-     - LLM-VLA（本身也懂语义）：探索收益是否最小？
-     - SmallVLA（能力最弱）：探索收益是否最大？
-     - OpenVLA（能力强）：探索收益居中？
-4. **结论与交付**
-
-   - 录制 demo 视频
-   - 形成最终实验报告
-   - 总结探索机制的适用条件与局限
+   - 新增 `src/explore/` 模块，本迭代只做**最简可用**版本：
+     - 工具名称就叫**探索工具**（`explore`），注册为 Agent 可调用工具（LangChain BaseTool），与 observe/action 平级
+     - 功能非常简单，**就是个笔记本**：
+       - `write(note)`：把探索到的经验写入笔记，如"指令『拿起红色方块』合规，『请拿起红色方块』动词未开头被拒绝"
+       - `read()`：返回已有全部笔记，供 LLM 下发指令前查阅
+     - 内部维护一个内存笔记列表（session 内有效），不落盘、不做结构化知识
+   - 用途：让 LLM 在探索-执行中积累"哪些指令说法会被接受/拒绝"的经验，下发指令前先读笔记本，减少被拦截次数
+   - 本迭代**不做**：驱动 env 的探针测试、物理特性探测、工作空间映射、结构化知识库、失败重规划（留给后续探索迭代）
 
 ### 交付物
 
-- `src/executor/model/openvla/openvla_adapter.py` 实现
-- `executor/model/factory.py` 中 openvla backend 注册
-- 正式实验数据（6 组对照）
-- 最终实验报告
-- demo 视频
+- `ActionTool` 指令校验拦截（纯函数 + 拒绝式错误返回）
+- `DEFAULT_SYSTEM_PROMPT` 增加指令规范约束
+- `src/explore/` 最简笔记本工具（`explore`）
+- 单元测试：校验规则各分支（动词开头 / 单句 / 长度上限）、笔记本 write/read 行为
+- 端到端冒烟：LLM 下发不合规指令被拒绝后自我纠正、合规指令正常执行
+
+### 不在本迭代
+
+- ❌ 指令自动改写/归一化（只拒绝不修，改写留待后续迭代）
+- ❌ 物理特性探测、工作空间映射、结构化环境知识（探索 v2）
+- ❌ 评估框架与对照实验（原 Iteration 10）
+- ❌ 真实 SmallVLA / OpenVLA 接入（原 Iteration 11/12）
 
 ---
 
@@ -817,8 +670,8 @@ executor/      动作执行循环（Executor + ExecResult + build_vla_input + ch
         ├── factory.py                 create_vla(config) 工厂
         ├── mock/mock_vla.py           MockVLA
         ├── llm_vla/llm_vla.py         LLMVLA（Iteration 7）
-        ├── small_vla/small_vla.py     SmallVLA（Iteration 11）
-        └── openvla/openvla_adapter.py OpenVLA（Iteration 12）
+        ├── small_vla/small_vla.py     SmallVLA（规划中）
+        └── openvla/openvla_adapter.py OpenVLA（规划中）
 pipeline/      主流程编排（组装 env + executor + agent + recorder）
   └── runner.py     Pipeline 主流程（启动/结束时调 recorder.start() / finish()）
 experiment/    实验数据收集与落地（Iteration 3，唯一模块）
@@ -832,8 +685,7 @@ utils/
         ├── store.py          ImageStore 主类
         ├── backend.py        存储后端（内存 / 文件系统）
         └── url_scheme.py     URL 生成与解析
-explore/       探索机制相关（Iteration 8 启用）
-evaluation/    评估框架（Iteration 10 启用）
+explore/       探索机制相关（Iteration 9 启用，笔记本式探索工具）
 ```
 
 ### VLA 接口契约与可插拔性
@@ -854,9 +706,9 @@ evaluation/    评估框架（Iteration 10 启用）
 | backend       | 实现路径                                      | 是否看图             | 作用                              |
 | ------------- | --------------------------------------------- | -------------------- | --------------------------------- |
 | `mock`      | `executor/model/mock/mock_vla.py`           | 否                   | 单元测试 / smoke test             |
-| `llm_vla`   | `executor/model/llm_vla/llm_vla.py`         | 否（用文本语义信息） | 探索机制研究基座（Iteration 7-10） |
-| `small_vla` | `executor/model/small_vla/small_vla.py`     | **是**（必须） | 真实小 VLA 对照（Iteration 11）   |
-| `openvla`   | `executor/model/openvla/openvla_adapter.py` | **是**（必须） | 最终正式实验（Iteration 12）     |
+| `llm_vla`   | `executor/model/llm_vla/llm_vla.py`         | 否（用文本语义信息） | 探索机制研究基座（Iteration 7）    |
+| `small_vla` | `executor/model/small_vla/small_vla.py`     | **是**（必须） | 真实小 VLA 对照（规划中）         |
+| `openvla`   | `executor/model/openvla/openvla_adapter.py` | **是**（必须） | 最终正式实验（规划中）            |
 
 ### 图片流转路径
 
@@ -874,16 +726,18 @@ executor.run_action(image_url=...)
 VLA.predict(image, instruction)
 ```
 
-### 探索知识传递路径
+### 指令下发路径
 
 ```
-探索阶段：LLM 调用 explore/probe → KnowledgeBase.record()
-                                    ↓
-                    KnowledgeBase.summarize() → 自然语言环境摘要
-                    ↓
-执行阶段：环境摘要注入系统提示词 → LLM 规划时利用知识
-                                    ↓
-                    LLM 下发增强子指令 → VLA 执行
+LLM 大脑
+    ↓ 下发前先读笔记本：explore.read() 查阅已积累的指令经验
+    ↓
+action 工具边界：validate_instruction 拦截（动词开头 / 单句 / ≤30 字符）
+    ↓ 不通过 → 返回错误，LLM 重新下发
+    ↓ 通过
+Executor → build_vla_input → VLA.predict(规范指令)
+    ↓
+explore.write(note) 记录经验（如"动词未开头的说法被拒绝"）
 ```
 
 ### 实验数据落地路径（ExperimentRecorder 一体化）

@@ -103,7 +103,7 @@ def test_action_tool_normal_instruction():
     """正常指令返回 ExecResult.message 字符串。"""
     env, executor = _make_setup(max_steps=5, satisfy_at_step=3)
     tool = ActionTool(env=env, executor=executor)
-    result = tool._run(instruction="往前走")
+    result = tool._run(instruction="move forward")
 
     assert isinstance(result, str)
     assert len(result) > 0
@@ -123,7 +123,7 @@ def test_action_tool_calls_executor_once():
     executor.run_action = capturing_run_action
 
     tool = ActionTool(env=env, executor=executor)
-    tool._run(instruction="往前走")
+    tool._run(instruction="move forward")
 
     assert captured["count"] == 1
     assert captured["target_pos"] is None
@@ -144,7 +144,7 @@ def test_action_tool_with_coords_extracts_target_pos():
     executor.run_action = capturing_run_action
 
     tool = ActionTool(env=env, executor=executor)
-    tool._run(instruction="移动到 x=0.5, y=0.0, z=0.4")
+    tool._run(instruction="move to x=0.5, y=0.0, z=0.4")
 
     assert captured["target_pos"] == (0.5, 0.0, 0.4)
 
@@ -157,10 +157,11 @@ def test_action_tool_name():
     assert tool.name == "action"
 
 
-def test_action_tool_description_contains_chinese():
+def test_action_tool_description_contains_action_keyword():
     env, executor = _make_setup()
     tool = ActionTool(env=env, executor=executor)
-    assert "动作" in tool.description
+    # 描述现在用英文，应含 "action"
+    assert "action" in tool.description.lower()
 
 
 def test_action_tool_args_schema_is_actioninput():
@@ -185,6 +186,116 @@ def test_parse_target_pos_various_formats():
     assert parse_target_pos("x=0.5, y=0.0, z=0.4") == (0.5, 0.0, 0.4)
     assert parse_target_pos("(0.5, 0, 0.4)") == (0.5, 0.0, 0.4)
     assert parse_target_pos("x:0.5, y:0, z:0.4") == (0.5, 0.0, 0.4)
-    assert parse_target_pos("无坐标") is None
+    assert parse_target_pos("move to nowhere") is None
     assert parse_target_pos("") is None
     assert parse_target_pos(None) is None
+
+
+# ---------- 7. iter9：smolVLA 指令校验拦截 ----------
+
+
+def test_action_tool_rejects_non_verb_prefix():
+    """非动词开头的英文指令返回拒绝消息，executor 不被调用。"""
+    env, executor = _make_setup()
+    captured = {}
+
+    original = executor.run_action
+
+    def capturing(env_arg, instr, done_criteria, **kw):
+        captured["called"] = True
+        return original(env_arg, instr, done_criteria, **kw)
+
+    executor.run_action = capturing
+    tool = ActionTool(env=env, executor=executor)
+    result = tool._run(instruction="red cube")
+
+    assert "指令不符合 smolVLA 规范" in result
+    assert "不是动作动词开头" in result
+    assert "called" not in captured
+
+
+def test_action_tool_rejects_chinese_instruction():
+    """iter9-extend：中文指令一律拒绝。"""
+    env, executor = _make_setup()
+    captured = {}
+
+    original = executor.run_action
+
+    def capturing(env_arg, instr, done_criteria, **kw):
+        captured["called"] = True
+        return original(env_arg, instr, done_criteria, **kw)
+
+    executor.run_action = capturing
+    tool = ActionTool(env=env, executor=executor)
+    result = tool._run(instruction="夹取红色方块")
+
+    assert "指令不符合 smolVLA 规范" in result
+    assert "包含非英文字符" in result
+    assert "called" not in captured
+
+
+def test_action_tool_rejects_multi_sentence():
+    """多句指令返回拒绝消息。"""
+    env, executor = _make_setup()
+    tool = ActionTool(env=env, executor=executor)
+    result = tool._run(instruction="pick red cube. then drop.")
+
+    assert "指令不符合 smolVLA 规范" in result
+    assert "包含多个句子" in result
+
+
+def test_action_tool_rejects_over_30_chars():
+    """超过 30 字符的指令返回拒绝消息。"""
+    env, executor = _make_setup()
+    tool = ActionTool(env=env, executor=executor)
+    long_instr = "place " + "a" * 30  # 36 字符，英文动词开头
+    result = tool._run(instruction=long_instr)
+
+    assert "指令不符合 smolVLA 规范" in result
+    assert "超过 30 字符上限" in result
+
+
+def test_action_tool_accepts_valid_verb():
+    """合规英文指令仍正常执行。"""
+    env, executor = _make_setup(max_steps=5, satisfy_at_step=3)
+    captured = {}
+
+    original = executor.run_action
+
+    def capturing(env_arg, instr, done_criteria, **kw):
+        captured["called"] = True
+        return original(env_arg, instr, done_criteria, **kw)
+
+    executor.run_action = capturing
+    tool = ActionTool(env=env, executor=executor)
+    result = tool._run(instruction="pick red cube")
+
+    assert "called" in captured
+    assert "指令不符合" not in result
+
+
+def test_action_tool_reject_message_format():
+    """拒绝消息格式严格匹配。"""
+    env, executor = _make_setup()
+    tool = ActionTool(env=env, executor=executor)
+    result = tool._run(instruction="fly")  # 英文非动词
+
+    assert result.startswith("指令不符合 smolVLA 规范：")
+
+
+def test_action_tool_no_parse_target_pos_on_reject():
+    """拒绝时 executor.run_action 完全未被调用。"""
+    env, executor = _make_setup()
+    call_count = {"n": 0}
+
+    original = executor.run_action
+
+    def counting(env_arg, instr, done_criteria, **kw):
+        call_count["n"] += 1
+        return original(env_arg, instr, done_criteria, **kw)
+
+    executor.run_action = counting
+    tool = ActionTool(env=env, executor=executor)
+    tool._run(instruction="red cube")  # 非动词开头
+
+    assert call_count["n"] == 0

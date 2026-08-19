@@ -3,16 +3,18 @@
 iter1-pipeline-refactor-config 后：
 - BaseTool / LCActionTool / LCObserveTool / 死代码已删除
 - 仅保留 ActionTool / ObserveTool / parse_target_pos
+
+iter9-verify-explore-design：新增 ExploreTool 导出。
 """
 
 from __future__ import annotations
 
 import src.tools as tools_module
-from src.tools import ActionTool, ObserveTool, parse_target_pos
+from src.tools import ActionTool, ExploreTool, ObserveTool, parse_target_pos
 
 
 def test_tools_all_exports_present():
-    expected = {"ActionTool", "ObserveTool", "parse_target_pos"}
+    expected = {"ActionTool", "ExploreTool", "ObserveTool", "parse_target_pos"}
     assert set(tools_module.__all__) == expected
     for name in expected:
         assert hasattr(tools_module, name), f"src.tools 缺少导出：{name}"
@@ -25,9 +27,10 @@ def test_dead_exports_removed():
 
 
 def test_imported_classes_are_correct_types():
-    # 两者都是 pydantic BaseTool 子类，name 是字段默认值
+    # 三者都是 pydantic BaseTool 子类，name 是字段默认值
     assert ActionTool.model_fields["name"].default == "action"
     assert ObserveTool.model_fields["name"].default == "observe"
+    assert ExploreTool.model_fields["name"].default == "explore"
 
     # parse_target_pos 是可调用函数
     assert callable(parse_target_pos)

@@ -30,7 +30,8 @@ llm:
   max_tokens: 2048
 
 explore:
-  enabled: false                  # 第五步再启用
+  enabled: false                  # 是否启用 Explore（关闭时不构造 Explore，不挂 ExploreTool）
+  root: "data/explore"            # 探索笔记落盘根目录（相对项目根）
 
 robot:
   type: panda                     # 机器人类型分派（env/robot/<type>/ 下加载对应 Robot）

@@ -23,12 +23,13 @@ from config.loader import AppConfig
 from env.pybullet_env import PyBulletEnv
 from executor import Executor
 from executor.model.factory import create_vla
+from explore import Explore
 from experiment.recorder import (
     ExperimentRecorder,
     get_recorder,
     set_recorder,
 )
-from tools import ActionTool, ObserveTool
+from tools import ActionTool, ExploreTool, ObserveTool
 from utils.adapter import get_adapter
 from utils.image_store import create_image_store
 from utils.logging import setup_logging
@@ -123,6 +124,7 @@ def run_pipeline(
     result: PipelineResult | None = None
     success = False
     summary = "未执行"
+    explore: Explore | None = None  # iter9：try 块外声明以便 finally 可见
     try:
         # 3a. env.reset（不区分 GUI/DIRECT，按 config.env.use_gui 由 env 自行决策）
         env.reset(task_spec=task_spec, seed=0)
@@ -139,12 +141,18 @@ def run_pipeline(
         # 7. 构造 ImageStore（迭代 5：observe 工具需要它来回传 image content block）
         image_store = create_image_store(config.image_store)
 
+        # iter9：构造 Explore（受 enabled 控制），同时注入 ExploreTool
+        if config.explore.enabled:
+            explore = Explore(root=config.explore.root, enabled=True)
+
         # 8. 组装 tools（ObserveTool 注入 image_store；ActionTool 注入 adapter）
         adapter = get_adapter(vla.output_spec, env.input_spec)
         tools = [
             ObserveTool(env=env, image_store=image_store),
             ActionTool(env=env, executor=executor, adapter=adapter),
         ]
+        if explore is not None:
+            tools.append(ExploreTool(explore=explore))
 
         # 8. 组装 agent（max_react_rounds / max_tool_calls 从 AgentConfig 读取）
         agent = create_exact_agent(
@@ -209,6 +217,14 @@ def run_pipeline(
         # 正常路径下 mutate env_closed = True
         if result is not None:
             result.env_closed = True
+
+        # iter9：finally 中 flush 探索笔记（异常路径也执行；异常仅 logger.warning）
+        if explore is not None:
+            try:
+                explore.flush()
+            except Exception as e:
+                logger.warning(f"explore.flush 失败（已忽略）: {e}")
+
         logger.info("pipeline 完成，env 已关闭")
 
     return result

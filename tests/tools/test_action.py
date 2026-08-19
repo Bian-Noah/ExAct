@@ -55,7 +55,7 @@ def test_action_tool_injected_adapter_no_warning(capsys):
     """注入 adapter → _run 透传，不 print 警告。"""
     env, executor = _make_env_and_executor()
     tool = ActionTool(env=env, executor=executor, adapter=identity_transform)
-    result = tool._run("移动")
+    result = tool._run("move")
     captured = capsys.readouterr()
     assert "未注入 adapter" not in captured.out
     assert isinstance(result, str)
@@ -65,7 +65,7 @@ def test_action_tool_fallback_adapter_auto_constructs(capsys):
     """未注入 adapter → _ensure_adapter 自动按 spec 构造 + print 警告。"""
     env, executor = _make_env_and_executor()
     tool = ActionTool(env=env, executor=executor)  # 不传 adapter
-    result = tool._run("移动")
+    result = tool._run("move")
     captured = capsys.readouterr()
     assert "未注入 adapter" in captured.out
     assert isinstance(result, str)
@@ -75,7 +75,7 @@ def test_action_tool_fallback_sets_internal_adapter():
     """fallback 后 tool.adapter 被填充为 get_adapter 结果。"""
     env, executor = _make_env_and_executor()
     tool = ActionTool(env=env, executor=executor)
-    tool._run("移动")
+    tool._run("move")
     expected = get_adapter(executor.vla.output_spec, env.input_spec)
     assert tool.adapter is expected
 
@@ -93,7 +93,7 @@ def test_action_tool_with_coords_still_works():
 
     executor.run_action = capturing
     tool = ActionTool(env=env, executor=executor, adapter=identity_transform)
-    tool._run("移动到 x=0.5, y=0.0, z=0.4")
+    tool._run("move to x=0.5, y=0.0, z=0.4")
     assert captured["target_pos"] == (0.5, 0.0, 0.4)
     assert captured["adapter"] is identity_transform
 

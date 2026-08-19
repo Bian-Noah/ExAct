@@ -57,7 +57,7 @@ class TestParseAgentResult:
                     content="",
                     tool_calls=[{
                         "name": "action",
-                        "args": {"instruction": "移动到红色方块上方"},
+                        "args": {"instruction": "move to red cube"},
                         "id": "call_2",
                     }],
                 ),

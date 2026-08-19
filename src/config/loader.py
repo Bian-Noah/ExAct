@@ -96,7 +96,15 @@ class LLMConfig:
 
 @dataclass
 class ExploreConfig:
+    """探索机制配置。
+
+    Attributes:
+        enabled: 是否启用 Explore（False 时 ExploreTool 不注入 agent，
+            Explore 实例也不构造，flush 不执行）。
+        root: 探索笔记落盘根目录（相对项目根的字符串路径）。
+    """
     enabled: bool = False
+    root: str = "data/explore"
 
 
 @dataclass
