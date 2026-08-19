@@ -39,25 +39,33 @@ class SO101Robot:
         """执行一步动作：POSITION_CONTROL 驱动 5 臂关节 + gripper + 推进物理。
 
         Args:
-            action: joint 空间动作（np.ndarray 或类似可索引容器，前 5 维为臂关节角，
-                第 6 维为 gripper 开合）。
+            action: joint 空间动作（np.ndarray 或类似可索引容器，前 5 维为**关节角增量**
+                rad，第 6 维为 gripper 开合 0~1）。
+                语义对齐 VLA 输出："当前关节角 + action = 目标位置"（增量控制），
+                而非直接把 action 当作目标位置。
             robot_id: pybullet 中该机器人的 body id。
             client_id: pybullet 连接 id。
         """
-        joints = self.arm_joint_indices
-        target_positions = list(action)[: len(joints)]
+        deltas = list(action)[: len(self.arm_joint_indices)]
+        # 读取当前关节角，target = current + delta（增量控制）
+        current_states = p.getJointStates(
+            robot_id, self.arm_joint_indices, physicsClientId=client_id,
+        )
+        target_positions = [
+            cur + d for cur, d in zip((s[0] for s in current_states), deltas)
+        ]
 
         p.setJointMotorControlArray(
             robot_id,
-            joints,
+            self.arm_joint_indices,
             p.POSITION_CONTROL,
             targetPositions=target_positions,
             physicsClientId=client_id,
         )
 
-        # gripper 关节（若动作有第 6 维）
-        if len(action) > len(joints):
-            gripper_pos = float(action[len(joints)])
+        # gripper 关节（绝对位置控制；第 6 维 0~1 直接当目标）
+        if len(action) > len(self.arm_joint_indices):
+            gripper_pos = float(action[len(self.arm_joint_indices)])
             p.setJointMotorControl2(
                 robot_id,
                 self.gripper_joint_index,
