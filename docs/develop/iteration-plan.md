@@ -20,6 +20,7 @@
 | 6     | VLA 链路验证                      | 验证 VLA 已能从 env 拿到图（链路通了，无需 LLM 介入）           | Mock               | M4 Air      | ⏳ 待启动     |
 | 7     | LLM-VLA 适配器                      | 用 MiniMax-M3 本身作为伪 VLA，机械臂真正响应指令                 | **LLMVLA**         | M4 Air      | ⏳ 待启动     |
 | 9     | smolVLA 指令契约 + 基础探索         | action 指令拦截 + 系统提示词约束 + 笔记本式探索工具               | LLMVLA             | M4 Air      | ⏳ 待启动     |
+| 10    | VLA chunk 接口契约重构              | 把 BaseVLA.predict 从单步改为多步轨迹，executor 按 VLA 输出执行   | smolVLA / Mock    | M4 Air      | ⏳ 待启动     |
 
 > 拆分说明：原 Iteration 4「图片存储器与 LLM 视觉能力」任务过多（包含图片存储、observe 改造、action 改造、executor 链路、BaseVLA 契约、config 扩展、pipeline 集成 7 件事），现拆为 4 / 5 / 6 三个迭代。原 Iteration 5（LLM-VLA 适配器）顺延为新 Iteration 7。原 Iteration 3 数据保存方案由"扩展管线接口"改为"ExperimentRecorder 一体化"——业务代码 `recorder.emit(...)` 埋点，由 `src/experiment/recorder.py` 一个类同时负责收集与保存三类数据（`log` → `experiment.log`、`observe_image` → `observer/*.png`、`video_frame` 占位）。每次实验产物在 `ExAct/data/experiment/{时间戳}/` 下。Iteration 6 原计划"image_url 传递链路"反思后改为"VLA 链路验证"——VLA 已能从 env 拿到图，无需 LLM 介入传递，仅补一个 print 验证链路工作。详见下文。
 
@@ -632,8 +633,190 @@ LLMVLA.predict(image, instruction):
 
 - ❌ 指令自动改写/归一化（只拒绝不修，改写留待后续迭代）
 - ❌ 物理特性探测、工作空间映射、结构化环境知识（探索 v2）
-- ❌ 评估框架与对照实验（原 Iteration 10）
+- ❌ 评估框架与对照实验（顺延为 Iteration 11）
 - ❌ 真实 SmallVLA / OpenVLA 接入（原 Iteration 11/12）
+
+---
+
+## Iteration 10: VLA chunk 接口契约重构
+
+**状态**：⏳ 待启动
+
+**目标**：把 `BaseVLA.predict` 从「返回单步动作」改为「返回 N 步轨迹」，executor 按 VLA 实际输出的步数执行，让 chunking VLA（smolVLA / ACT / Pi0 / Diffusion）的多步规划能力真正贯通到执行链路。同时保留单步 VLA 的兼容性。
+
+### 背景
+
+Iteration 7（LLMVLA）和 Iteration 9（smolVLA 接入）暴露了 **执行链路与 VLA 实际工作方式脱节** 的根因：
+
+| 当前层级 | 契约/行为 | 问题 |
+|---|---|---|
+| `BaseVLA.predict`（`src/executor/model/base.py:36`） | 返回 `VLAOutput`，只承载单帧动作值 | 把 lerobot chunking VLA 的多步输出能力屏蔽成单步 |
+| `LeRobotVLA.predict`（`src/executor/model/lerobot/lerobot_vla.py:560-577`） | 调 `self._policy.select_action(...)`，popleft 一个 | 走 smolVLA 的 deque 队列，跨 `action()` 调用残留旧 chunk |
+| `Executor.run_action`（`src/executor/__init__.py`） | `for step in range(self.max_steps)` 硬编码 50 步 | 不知道当前 VLA 的 `chunk_size` 是几；与模型意图完全脱节 |
+| `check_done`（`src/executor/check_done.py:46-58`） | 没 `target_pos` 时 `dist ≤ 0.01m` 判 done | 反向语义，单步即 break，截断 VLA 的多步轨迹 |
+| Adapter（`src/utils/adapter/adapters/joint_to_joint.py`） | 单帧空间转换 | 不感知 chunk 维度（属于空间层，不是时间层） |
+
+详细问题记录见 `docs/develop/2026-08-20-vla-chunk-execution-issues.md`。
+
+### 核心设计
+
+把 chunk 维度显式化，**让接口对 N 无感**：
+
+```python
+# BaseVLA.predict 改后
+@dataclass
+class VLAOutput:
+    values: np.ndarray   # shape: (N, action_dim)，N 由 VLA 自己决定
+    spec: ActionSpec
+
+class BaseVLA(abc.ABC):
+    @abc.abstractmethod
+    def predict(self, image, instruction, state=None) -> VLAOutput:
+        """返回 N 步完整轨迹。N 由后端决定：smolVLA=50, ACT=100, Diffusion=8, 单步 VLA=1, Mock=1。"""
+```
+
+各后端的 N 取值：
+
+| 后端 | `values.shape` | Executor 跑几步 |
+|---|---|---|
+| smolVLA / ACT / Pi0 / Diffusion（chunking） | `(N, action_dim)`，N ∈ {8, 50, 100} | N 步 |
+| LLMVLA（每次推理出 1 个 7D Action） | `(1, 7)` | 1 步 |
+| MockVLA | `(1, 7)` | 1 步（保持兼容） |
+| 未来单步策略 | `(1, ...)` | 1 步 |
+
+**Executor 不知道 N 是几，照单全跑**：
+
+```python
+# src/executor/__init__.py:run_action 改后
+vla_output = self.vla.predict(image, instruction, state=state_vec)  # VLAOutput
+actions = adapter(vla_output.values, env)  # shape (N, action_dim)
+
+obs_after = obs_before
+for action in actions:    # 循环边界就是 len(actions)，不再写死 max_steps
+    obs_after, _, _, _ = env.step(action)
+    # 中间不再调 check_done，不干预 VLA 意图
+
+return ExecResult(
+    success=None,           # 语义成功由 LLM 看最终画面判断
+    steps=len(actions),
+    final_obs=obs_after,
+    message=f"执行 VLA 规划的 {len(actions)} 步"
+)
+```
+
+**Adapter 按第一维保留 N 转换**：
+
+```python
+# src/utils/adapter/adapters/joint_to_joint.py 改后
+def joint_to_joint_transform(vla_output, env):
+    arr = np.asarray(vla_output)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)   # 单步 → (1, dim)
+    elif arr.ndim == 2:
+        pass                       # chunk → (N, dim)
+    else:
+        raise ValueError(...)
+    target_dim = env.input_spec.dim
+    mapped = arr[:, :target_dim].copy()  # 切片第一维保留 N
+    if has_gripper and arr.shape[1] == target_dim - 1:
+        gripper_col = np.full((arr.shape[0], 1), _DEFAULT_GRIPPER)
+        mapped = np.concatenate([mapped, gripper_col], axis=1)
+    return mapped   # shape (N, target_dim)
+```
+
+### 任务
+
+1. **改 `BaseVLA.predict` 契约**
+
+   - `VLAOutput.values` 从「单帧动作」改为 `np.ndarray`，shape `(N, action_dim)`
+   - 文档化：N 由后端决定，调用方按第一维迭代
+   - mock 路径兼容：MockVLA 返回 `(1, 7)` 不破坏既有测试
+
+2. **改 `LeRobotVLA.predict` 走 `predict_action_chunk`**
+
+   - 不再调 `self._policy.select_action(preprocessed)`（带 deque）
+   - 改为 `self._policy.predict_action_chunk(preprocessed)` 一次拿整 chunk
+   - postprocessor 输出的 `(1, N, action_dim)` 去 batch 维 → `(N, action_dim)`
+   - **好处**：彻底消除 deque 跨调用残留；每 chunk 1 次推理，不存在旧 chunk 污染新调用的问题
+
+3. **改 `Executor.run_action` 按 VLA 输出执行**
+
+   - 循环边界从 `range(self.max_steps)` 改为 `for action in actions`
+   - 中间**不再调** `check_done`——VLA 的 chunk 是它对下一步的承诺，照单全收
+   - 加 `max_chunk_steps` 参数（默认 200）作为异常 VLA 返回过大 N 的安全兜底
+   - `ExecResult.success` 改为 `None` 或新增 `semantic_success` 字段让 LLM 自行判断
+
+4. **改 `check_done` 只做执行后报告**
+
+   - `check_done` 不再参与 executor 循环控制
+   - 仅在 `ActionTool` 拿到 `ExecResult` 后**作为信息返回**，帮助 LLM 评估当前状态
+   - 删除 `target_pos=None` 时的反向兜底逻辑（这个分支本身就是 bug）
+
+5. **改 3 个 adapter 支持批量转换**
+
+   - `joint_to_joint_transform`：第一维保留 N，第二维做空间转换（见上面代码示例）
+   - `task_to_joint_hardcode_transform`：同理，第一维保留 N
+   - `identity_transform`：shape `(N, dim) -> (N, dim)` 直接透传
+   - 共用 `vla_output` 入参的 shape 自适应：ndim=1 → reshape (1, -1)，ndim=2 → 保持
+
+6. **MockVLA 兼容 N=1**
+
+   - `MockVLA.predict` 和 `JointMockVLA.predict` 改为返回 `VLAOutput(values=np.array([action]), ...)`
+   - 旧的单步测试不需要改测试断言，只要返回 shape 变了就跟着调整
+
+7. **ActionTool 适配新返回**
+
+   - `ActionTool._run` 拿到的 `ExecResult.message` 改成「执行 VLA 规划的 N 步」结构
+   - 增加返回 `final_obs["ee_pos"]` 给 LLM，让 LLM 自己判断「到位了没」
+   - 检查 `success=None` 不再让 agent.py 的 `_parse_agent_result` 把空 final_answer 当作失败
+
+### 验证可插拔性
+
+跑同一段 executor 代码，分别测试 4 种 VLA：
+
+```python
+# 测试 1: smolVLA（chunking, N=50）
+vla = LeRobotVLA(policy_type="smolvla", ...)
+result = executor.run_action(env, "move forward")  # 内部跑 50 步
+
+# 测试 2: ACT（chunking, N=100）
+vla = LeRobotVLA(policy_type="act", ...)
+result = executor.run_action(env, "move forward")  # 内部跑 100 步
+
+# 测试 3: LLMVLA（单步, N=1）
+vla = LLMVLA(llm_config, vla_config)
+result = executor.run_action(env, "move forward")  # 内部跑 1 步
+
+# 测试 4: MockVLA（单步, N=1）
+vla = MockVLA(seed=0)
+result = executor.run_action(env, "move forward")  # 内部跑 1 步
+```
+
+**executor 一行代码不改，4 种 VLA 都能跑**——这就是可插拔。
+
+诊断脚本 `src/pipeline/script/diagnose_arm_movement.py` 同样按新契约调整（自己循环 `len(actions)` 而不是 `range(max_steps)`）。
+
+### 交付物
+
+- `BaseVLA.predict` 契约文档（明确 N 由后端决定）
+- `LeRobotVLA.predict` 改走 `predict_action_chunk`
+- `Executor.run_action` 按 VLA 输出步数执行，去掉硬编码 max_steps 循环与中间 check_done
+- `check_done` 退化为执行后报告（不影响循环）
+- 3 个 adapter 全部支持批量转换（`(N, dim)` 透传 / 切片 / 补 gripper）
+- MockVLA / JointMockVLA / LLMVLA 返回 `shape (1, ...)` 兼容
+- `ActionTool` 处理新返回结构
+- 单元测试：4 种 VLA 后端的 `predict` 返回 shape 契约
+- 端到端冒烟：
+  - `diagnose_arm_movement.py --vla smolvla --max-steps 200` 跑完一个 chunk 看累计位移
+  - `app.py` 跑 `task=把黄色海绵块夹起来`，对比 Iter 9 报告的「每次 0.001-0.003m」，验证 chunk 真正贯通
+
+### 不在本迭代
+
+- ❌ VLA 端到端的视觉能力提升（仍是当前 smolVLA / LLMVLA 模型）
+- ❌ VLA 训练 / fine-tune（让模型对当前 cube 场景不 OOD）
+- ❌ 时序集成（temporal ensemble）等 chunk 利用策略升级——本迭代先把 chunk 接通，利用策略留后续迭代
+- ❌ 评估框架与对照实验（顺延为 Iteration 11）
+- ❌ 真实 SmallVLA / OpenVLA 接入（顺延为 Iteration 12+）
 
 ---
 
