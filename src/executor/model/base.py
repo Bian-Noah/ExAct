@@ -4,12 +4,11 @@
 """
 
 import abc
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import numpy as np
 
-from env.base import Action7D, ActionSpec
+from env.base import ActionSpec
 
 
 @dataclass
@@ -17,11 +16,16 @@ class VLAOutput:
     """VLA 输出包装：值 + 语义 spec（适配层据此分派）。
 
     Attributes:
-        values: 原始输出（np.ndarray / torch.Tensor / tuple / Action7D 等）。
-        spec: 该输出的语义 spec（空间/维度/每维含义）。
+        values: 原始输出，np.ndarray shape `(N, action_dim)`。
+            N 由 VLA 后端决定（smolVLA=50, ACT=100, Pi0=50, Diffusion=8,
+            LLMVLA=1, MockVLA=1）。调用方按第一维迭代执行：
+            `for action in vla_output.values: env.step(action)`。
+            单步 VLA（Mock / LLMVLA）shape 为 `(1, action_dim)`，N=1，
+            仍按第一维迭代（循环 1 次退出），契约一致。
+        spec: 该输出的语义 spec（空间/维度/每维含义），与 N 无关。
     """
 
-    values: Any
+    values: np.ndarray
     spec: ActionSpec
 
 

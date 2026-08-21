@@ -67,50 +67,39 @@ def test_check_done_reached_target_ignores_before_pos():
     assert done is True
 
 
-# ========== reached 规则 - 兜底场景（无 target_pos，向后兼容） ==========
+# ========== reached 规则 - target_pos=None 场景（Iteration 10 删除反向兜底） ==========
 
 
-def test_check_done_reached_fallback_satisfied():
-    """无 target_pos + 前后位移 0.005m < 0.01m → (True, reason 含 '兜底')。"""
+def test_check_done_reached_target_none_returns_false():
+    """无 target_pos + 前后位移 0.005m < 0.01m → (False, ...)。
+
+    Iteration 10：删除反向兜底。target_pos 缺失时**永远**返回 False，
+    LLM 通过 final_obs["ee_pos"] 自主判断到位与否（避免 chunk 被截断）。
+    """
     obs_before = {"ee_pos": (0, 0, 0)}
     obs_after = {"ee_pos": (0.003, 0.004, 0)}  # 位移 0.005m
-    done, reason = check_done(obs_before, obs_after, "reached")
-    assert done is True
-    assert "兜底" in reason
-
-
-def test_check_done_reached_fallback_not_satisfied():
-    """无 target_pos + 前后位移 0.02m > 0.01m → (False, reason 含 '未到达')。"""
-    obs_before = {"ee_pos": (0, 0, 0)}
-    obs_after = {"ee_pos": (0.02, 0, 0)}  # 位移 0.02m
     done, reason = check_done(obs_before, obs_after, "reached")
     assert done is False
-    assert "未到达" in reason
+    assert "target_pos 未提供" in reason
+    assert "小于阈值" not in reason
 
 
-def test_check_done_reached_fallback_boundary():
-    """无 target_pos + 前后位移恰好 0.01m → (True, ...)。"""
+def test_check_done_reached_target_none_large_displacement_also_false():
+    """无 target_pos + 大位移（> 0.01m）→ 仍返回 False（无兜底分支）。"""
     obs_before = {"ee_pos": (0, 0, 0)}
-    obs_after = {"ee_pos": (0.01, 0, 0)}  # 位移恰好 0.01m
-    done, _ = check_done(obs_before, obs_after, "reached")
-    assert done is True
+    obs_after = {"ee_pos": (0.05, 0, 0)}  # 位移 0.05m
+    done, reason = check_done(obs_before, obs_after, "reached")
+    assert done is False
+    assert "target_pos 未提供" in reason
 
 
-def test_check_done_reached_fallback_case_insensitive():
-    """无 target_pos + criteria='Reached'/'REACHED' → 按 reached 规则判断。"""
-    obs_before = {"ee_pos": (0, 0, 0)}
-    obs_after = {"ee_pos": (0.003, 0.004, 0)}  # 位移 0.005m
-    for criteria in ["Reached", "REACHED", "ReAcHeD"]:
-        done, _ = check_done(obs_before, obs_after, criteria)
-        assert done is True, f"criteria={criteria} 应匹配 reached 规则"
-
-
-def test_check_done_reached_fallback_chinese():
-    """无 target_pos + criteria='到达' → 按 reached 规则判断。"""
+def test_check_done_reached_target_none_chinese_criteria():
+    """无 target_pos + criteria='到达' → 返回 (False, "target_pos 未提供...")。"""
     obs_before = {"ee_pos": (0, 0, 0)}
     obs_after = {"ee_pos": (0.003, 0.004, 0)}  # 位移 0.005m
-    done, _ = check_done(obs_before, obs_after, "到达")
-    assert done is True
+    done, reason = check_done(obs_before, obs_after, "到达")
+    assert done is False
+    assert "target_pos 未提供" in reason
 
 
 # ========== grasped 规则 ==========

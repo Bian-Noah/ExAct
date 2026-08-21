@@ -12,7 +12,7 @@ import inspect
 import numpy as np
 import pytest
 
-from env.base import Action7D, ActionSpec
+from env.base import ActionSpec
 from executor import BaseVLA as BaseVLA_re
 from executor import MockVLA as MockVLA_re
 from executor.model.base import BaseVLA, VLAOutput
@@ -43,7 +43,10 @@ def test_basevla_subclass_missing_predict_cannot_instantiate():
 
 
 def test_basevla_full_subclass_can_instantiate():
-    """子类实现 predict + output_spec 后可实例化且 predict 返回 VLAOutput。"""
+    """子类实现 predict + output_spec 后可实例化且 predict 返回 VLAOutput。
+
+    Iteration 10 chunk 契约：values shape (N, action_dim)；子类返回 shape (1, 7)。
+    """
     class GoodVLA(BaseVLA):
         @property
         def output_spec(self):
@@ -51,14 +54,15 @@ def test_basevla_full_subclass_can_instantiate():
 
         def predict(self, image, instruction):
             return VLAOutput(
-                values=Action7D(0, 0, 0, 0, 0, 0, 0.5),
+                values=np.zeros((1, 7), dtype=float),
                 spec=self.output_spec,
             )
 
     v = GoodVLA()
     result = v.predict(None, "test")
     assert isinstance(result, VLAOutput)
-    assert isinstance(result.values, Action7D)
+    assert isinstance(result.values, np.ndarray)
+    assert result.values.shape == (1, 7)
 
 
 # ========== MockVLA 行为测试 ==========
@@ -70,12 +74,14 @@ def test_mockvla_can_instantiate():
 
 
 def test_mockvla_predict_returns_vlaoutput():
-    """predict 返回 VLAOutput 且 values 是 Action7D。"""
+    """predict 返回 VLAOutput 且 values 是 np.ndarray shape (1, 7)。"""
     v = MockVLA(seed=0)
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     result = v.predict(image, "move")
     assert isinstance(result, VLAOutput)
-    assert isinstance(result.values, Action7D)
+    assert isinstance(result.values, np.ndarray)
+    assert result.values.shape == (1, 7)
+    assert result.values.dtype == float
 
 
 def test_mockvla_field_ranges():
@@ -84,13 +90,14 @@ def test_mockvla_field_ranges():
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     for i in range(10):
         result = v.predict(image, f"instruction_{i}").values
-        assert -0.02 <= result.dx <= 0.02
-        assert -0.02 <= result.dy <= 0.02
-        assert -0.02 <= result.dz <= 0.02
-        assert -0.05 <= result.drx <= 0.05
-        assert -0.05 <= result.dry <= 0.05
-        assert -0.05 <= result.drz <= 0.05
-        assert result.gripper == 0.5
+        chunk = result[0]  # shape (7,)
+        assert -0.02 <= chunk[0] <= 0.02  # dx
+        assert -0.02 <= chunk[1] <= 0.02  # dy
+        assert -0.02 <= chunk[2] <= 0.02  # dz
+        assert -0.05 <= chunk[3] <= 0.05  # drx
+        assert -0.05 <= chunk[4] <= 0.05  # dry
+        assert -0.05 <= chunk[5] <= 0.05  # drz
+        assert chunk[6] == 0.5  # gripper
 
 
 def test_mockvla_reproducible_same_seed_and_instruction():
@@ -100,15 +107,9 @@ def test_mockvla_reproducible_same_seed_and_instruction():
     v2 = MockVLA(seed=42)
     r1 = v1.predict(image, "move to red").values
     r2 = v2.predict(image, "move to red").values
-    assert r1 == r2
-    # 7 个字段逐一断言
-    assert r1.dx == r2.dx
-    assert r1.dy == r2.dy
-    assert r1.dz == r2.dz
-    assert r1.drx == r2.drx
-    assert r1.dry == r2.dry
-    assert r1.drz == r2.drz
-    assert r1.gripper == r2.gripper
+    assert np.array_equal(r1, r2)
+    for j in range(7):
+        assert r1[0, j] == r2[0, j]
 
 
 def test_mockvla_different_instruction_different_output():
@@ -121,7 +122,7 @@ def test_mockvla_different_instruction_different_output():
     found_diff = False
     for i in range(len(outputs)):
         for j in range(i + 1, len(outputs)):
-            if outputs[i] != outputs[j]:
+            if not np.array_equal(outputs[i], outputs[j]):
                 found_diff = True
                 break
         if found_diff:
@@ -132,16 +133,13 @@ def test_mockvla_different_instruction_different_output():
 def test_mockvla_ignores_image():
     """相同 seed + instruction 下，image 变化不影响输出。"""
     v = MockVLA(seed=0)
-    img_none_result = v.predict(None, "move")
+    img_none_result = v.predict(None, "move").values
     img_random = np.random.randint(0, 255, (20, 20, 3), dtype=np.uint8)
-    img_random_result = v.predict(img_random, "move")
+    img_random_result = v.predict(img_random, "move").values
     img_empty = np.zeros((0, 0, 3), dtype=np.uint8)
-    img_empty_result = v.predict(img_empty, "move")
-    assert (
-        img_none_result.values
-        == img_random_result.values
-        == img_empty_result.values
-    )
+    img_empty_result = v.predict(img_empty, "move").values
+    assert np.array_equal(img_none_result, img_random_result)
+    assert np.array_equal(img_none_result, img_empty_result)
 
 
 # ========== re-export 兼容性测试 ==========
@@ -191,13 +189,13 @@ def test_jointmockvla_can_instantiate():
 
 
 def test_jointmockvla_predict_returns_vlaoutput():
-    """predict 返回 VLAOutput 且 values 是 np.ndarray 长度 6。"""
+    """predict 返回 VLAOutput 且 values 是 np.ndarray shape (1, 6)。"""
     v = JointMockVLA(seed=0)
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     result = v.predict(image, "move")
     assert isinstance(result, VLAOutput)
     assert isinstance(result.values, np.ndarray)
-    assert result.values.shape == (6,)
+    assert result.values.shape == (1, 6)
 
 
 def test_jointmockvla_output_spec():
@@ -216,9 +214,10 @@ def test_jointmockvla_field_ranges():
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     for i in range(10):
         result = v.predict(image, f"instruction_{i}").values
+        chunk = result[0]  # shape (6,)
         for j in range(5):
-            assert -0.1 <= result[j] <= 0.1, f"joint[{j}] out of range"
-        assert result[5] == 0.5
+            assert -0.1 <= chunk[j] <= 0.1, f"joint[{j}] out of range"
+        assert chunk[5] == 0.5
 
 
 def test_jointmockvla_reproducible_same_seed_and_instruction():
@@ -230,7 +229,7 @@ def test_jointmockvla_reproducible_same_seed_and_instruction():
     r2 = v2.predict(image, "move to red").values
     assert np.array_equal(r1, r2)
     for j in range(6):
-        assert r1[j] == r2[j]
+        assert r1[0, j] == r2[0, j]
 
 
 def test_jointmockvla_different_instruction_different_output():
@@ -260,7 +259,11 @@ def test_jointmockvla_ignores_image():
 
 
 def test_jointmockvla_passes_joint_to_joint_adapter():
-    """JointMockVLA(joint,6) + so101(joint,6) → joint_to_joint_transform 等维直通。"""
+    """JointMockVLA(joint,6) + so101(joint,6) → joint_to_joint_transform 等维直通。
+
+    Iteration 10 chunk 契约：adapter 输入 shape (1, 6) → 输出 shape (1, 6)；
+    调用方按第一维迭代（这里 1 次循环）。
+    """
     from utils.adapter import get_adapter
 
     v = JointMockVLA(seed=0)
@@ -273,9 +276,9 @@ def test_jointmockvla_passes_joint_to_joint_adapter():
         def input_spec(self):
             return env_spec
 
-    out = v.predict(None, "move forward").values
-    mapped = adapter(out, _FakeEnv())
-    assert mapped.shape == (6,)
+    out = v.predict(None, "move forward").values  # shape (1, 6)
+    mapped = adapter(out, _FakeEnv())  # shape (1, 6)
+    assert mapped.shape == (1, 6)
     assert np.allclose(mapped, out)
 
 

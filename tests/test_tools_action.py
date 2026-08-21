@@ -299,3 +299,31 @@ def test_action_tool_no_parse_target_pos_on_reject():
     tool._run(instruction="red cube")  # 非动词开头
 
     assert call_count["n"] == 0
+
+
+# ---------- 8. Iteration 10 chunk 契约：返回 ee_pos 给 LLM ----------
+
+
+def test_action_tool_run_returns_ee_pos_in_message():
+    """Iteration 10：ActionTool 返回 message 含 final_obs["ee_pos"] + "LLM 观察" 字样。"""
+    env, executor = _make_setup(max_steps=5, satisfy_at_step=10)
+    tool = ActionTool(env=env, executor=executor)
+    result = tool._run(instruction="move forward")
+
+    # message 含末端位置
+    assert "最终末端位置" in result
+    # ee_pos 三元组至少出现一次 (x.x, y.y, z.z)
+    import re
+    assert re.search(r"\(\-?\d+\.\d+, \-?\d+\.\d+, \-?\d+\.\d+\)", result)
+    # 含 "LLM 观察" 字样
+    assert "LLM 观察" in result
+
+
+def test_action_tool_run_message_includes_step_count():
+    """Iteration 10：message 含 "执行 VLA 规划的 N 步"（MockVLA chunk=1）。"""
+    env, executor = _make_setup(max_steps=5, satisfy_at_step=10)
+    tool = ActionTool(env=env, executor=executor)
+    result = tool._run(instruction="move forward")
+
+    # MockVLA chunk=1，executor 跑 1 步
+    assert "执行 VLA 规划的 1 步" in result

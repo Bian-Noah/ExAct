@@ -3,6 +3,10 @@
 用于执行器主循环验证（不依赖真实模型权重）。
 相同 seed + 相同 instruction 下输出完全一致，便于 pytest 断言可复现。
 故意忽略 image 参数。
+
+返回值遵循 chunk 契约：`VLAOutput.values` shape `(N, action_dim)`。
+单步 VLA（Mock / LLMVLA）shape 为 `(1, action_dim)`，N=1，调用方按第一维
+迭代执行即可。
 """
 
 import hashlib
@@ -38,7 +42,7 @@ class MockVLA(BaseVLA):
         instruction: str,
         state: np.ndarray | None = None,
     ) -> VLAOutput:
-        """生成伪随机 7D 动作。
+        """生成伪随机 7D 动作（chunk shape `(1, 7)`）。
 
         位移分量范围 [-0.02, 0.02] 米，旋转分量范围 [-0.05, 0.05] 弧度，
         夹爪固定 0.5（半开半合）。相同 seed + instruction 输出一致。
@@ -49,7 +53,7 @@ class MockVLA(BaseVLA):
             state: 故意忽略（Mock 不依赖本体感知）。
 
         Returns:
-            VLAOutput：values 为 Action7D 实例，spec 为 task 空间 7 维。
+            VLAOutput：values 为 np.ndarray shape=(1, 7)，spec 为 task 空间 7 维。
         """
         # 基于 instruction 哈希与 seed 组合生成种子，保证可复现
         instruction_bytes = instruction.encode("utf-8")
@@ -68,10 +72,10 @@ class MockVLA(BaseVLA):
         drz = rng.uniform(-0.05, 0.05)
         gripper = 0.5
 
-        return VLAOutput(
-            values=Action7D(dx, dy, dz, drx, dry, drz, gripper),
-            spec=self.output_spec,
-        )
+        values = np.array(
+            [[dx, dy, dz, drx, dry, drz, gripper]], dtype=float
+        )  # shape (1, 7)
+        return VLAOutput(values=values, spec=self.output_spec)
 
 
 class JointMockVLA(BaseVLA):
@@ -105,7 +109,7 @@ class JointMockVLA(BaseVLA):
         instruction: str,
         state: np.ndarray | None = None,
     ) -> VLAOutput:
-        """生成伪随机 6 维 joint 动作。
+        """生成伪随机 6D joint 动作（chunk shape `(1, 6)`）。
 
         前 5 维：关节角增量（弧度），范围 [-0.1, 0.1]。
         第 6 维：gripper 开合，固定 0.5。
@@ -116,7 +120,7 @@ class JointMockVLA(BaseVLA):
             state: 故意忽略。
 
         Returns:
-            VLAOutput：values 为 np.ndarray shape=(6,)，spec 为 joint 空间 6 维。
+            VLAOutput：values 为 np.ndarray shape=(1, 6)，spec 为 joint 空间 6 维。
         """
         # 基于 instruction 哈希与 seed 组合生成种子，保证可复现
         instruction_bytes = instruction.encode("utf-8")
@@ -132,6 +136,6 @@ class JointMockVLA(BaseVLA):
             rng.uniform(self.JOINT_DELTA_MIN, self.JOINT_DELTA_MAX)
             for _ in range(joint_dim)
         ]
-        values = np.array(joints + [self.GRIPPER_DEFAULT], dtype=float)
+        values = np.array([joints + [self.GRIPPER_DEFAULT]], dtype=float)  # (1, 6)
 
         return VLAOutput(values=values, spec=self.output_spec)

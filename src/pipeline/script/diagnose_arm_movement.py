@@ -206,25 +206,44 @@ def main() -> int:
 
     # 6. 逐步执行（绕开 executor 主循环，自己逐步 step + check_done，
     #    这样能清楚看到每步的 action 与 ee_pos 变化）
+    #
+    # Iteration 10 chunk 契约：循环边界 = VLA 输出的 chunk size（N），
+    # **不**是硬编码 max_steps。VLA predict 一次返回整 chunk (N, action_dim)，
+    # 我们按第一维迭代执行；max_steps 仅作为兜底上限（N > max_steps 时截断）。
     obs_before = env.get_obs()
     cumulative_disp = 0.0
-    for step in range(max_steps):
-        # 6.1 VLA 推理
-        rgb = obs_before.get("rgb")
-        if args.print_image and rgb is not None:
-            print(f"    [debug] obs_before.rgb shape = {rgb.shape}")
+    rgb = obs_before.get("rgb")
+    if args.print_image and rgb is not None:
+        print(f"    [debug] obs_before.rgb shape = {rgb.shape}")
 
-        vla_out = vla.predict(rgb, instruction)
-        if isinstance(vla_out, VLAOutput):
-            vla_out = vla_out.values
+    vla_out = vla.predict(rgb, instruction)
+    if isinstance(vla_out, VLAOutput):
+        vla_out = vla_out.values
+    chunk = np.asarray(vla_out)  # shape (N, action_dim)
+    if chunk.ndim == 1:
+        chunk = chunk.reshape(1, -1)
 
-        # 6.2 adapter（task 空间直通，identity）
-        action = adapter(vla_out, env)
+    chunk_n = len(chunk)
+    print(f"[vla] predict 输出 chunk_size={chunk_n}")
+    print()
 
-        # 6.3 env.step
-        obs_after, _, _, _ = env.step(action)
+    for step in range(chunk_n):
+        # 6.1 adapter（task 空间直通，identity）
+        single_action = chunk[step]
+        action_for_env = adapter(single_action, env) if False else single_action
+        # 这里 adapter 整 chunk 转效率更高，但诊断脚本要每步打印——按单步调用
+        if adapter.__name__ != "identity_transform":
+            # adapter 设计是按整 chunk 输入；这里 wrap 成 (1, dim) 给 adapter
+            wrapped = single_action.reshape(1, -1)
+            action_for_env = adapter(wrapped, env)
+            # adapter 输出 (1, dim)，env.step 要 (dim,)
+            if isinstance(action_for_env, np.ndarray) and action_for_env.ndim == 2:
+                action_for_env = action_for_env[0]
 
-        # 6.4 位移计算
+        # 6.2 env.step
+        obs_after, _, _, _ = env.step(action_for_env)
+
+        # 6.3 位移计算
         delta_pos = tuple(
             round(obs_after["ee_pos"][i] - obs_before["ee_pos"][i], 4)
             for i in range(3)
@@ -232,15 +251,15 @@ def main() -> int:
         step_disp = math.dist(obs_before["ee_pos"], obs_after["ee_pos"])
         cumulative_disp += step_disp
 
-        # 6.5 check_done 判定
+        # 6.4 check_done 判定（事后报告，不影响循环）
         from executor.check_done import check_done
         done, reason = check_done(
             obs_before, obs_after, "reached",
             target_pos=None,
         )
 
-        print(f"[step {step + 1}/{max_steps}]")
-        _print_action(vla_out)
+        print(f"[step {step + 1}/{chunk_n}]")
+        _print_action(single_action)
         print(f"    ee_pos (before) = {tuple(round(x, 4) for x in obs_before['ee_pos'])}")
         print(f"    ee_pos (after)  = {tuple(round(x, 4) for x in obs_after['ee_pos'])}")
         print(f"    delta ee_pos    = {delta_pos}（本步位移 {step_disp:.4f} m）")

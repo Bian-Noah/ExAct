@@ -6,6 +6,9 @@ VLA 输出与 env 输入都是 joint 空间，但维度/夹爪存在可能不同
   2. 输入维度 > 目标维度 → 截取前 N 维。
   3. 输入维度 == 目标维度 - 1 且目标含 gripper → 截取 + 补默认 gripper 占位。
   4. 其余输入维度 < 目标所需 → ValueError（含实际/期望维度）。
+
+Iteration 10 chunk 契约：adapter 接收 shape (N, action_dim)（executor 解包后），
+输出 shape (N, target_dim)。ndim=1 输入按 ndim 自适应 reshape 为 (1, -1)。
 """
 
 import numpy as np
@@ -19,9 +22,12 @@ _DEFAULT_GRIPPER: float = 0.5
 
 
 def _to_numpy(vla_output) -> np.ndarray:
-    """把 VLA 输出（裸动作值：数组/张量/tuple）转为一维 numpy。
+    """把 VLA 输出（裸动作值：数组/张量/tuple）转二维 numpy。
 
-    输入已是 executor 解包后的裸值，不含 VLAOutput 包装。
+    Iteration 10：返回 shape (N, action_dim)。
+      - ndim=1 → reshape (1, -1)（单步 VLA 兼容）
+      - ndim=2 → 保持
+      - 其他 → ValueError
     """
     if isinstance(vla_output, np.ndarray):
         arr = vla_output
@@ -29,7 +35,14 @@ def _to_numpy(vla_output) -> np.ndarray:
         arr = vla_output.detach().cpu().numpy()
     else:
         arr = np.asarray(vla_output)
-    return arr.reshape(-1).astype(float)
+    arr = arr.astype(float)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)  # 单步 → (1, dim)
+    elif arr.ndim != 2:
+        raise ValueError(
+            f"adapter 输入 ndim={arr.ndim}，期望 1 或 2"
+        )
+    return arr
 
 
 def joint_to_joint_transform(vla_output, env):
@@ -37,10 +50,11 @@ def joint_to_joint_transform(vla_output, env):
 
     Args:
         vla_output: VLA 输出（joint 空间，可为数组/张量/tuple）。
+            shape (N, action_dim) 或 (action_dim,)；后者按 (1, -1) reshape。
         env: 目标 env，其 input_spec 提供目标维度与 gripper 位置。
 
     Returns:
-        np.ndarray，长度 = env.input_spec.dim。
+        np.ndarray shape (N, target_dim)。第一维 N 与输入一致。
 
     Raises:
         ValueError: 输出维度 < 目标所需（缺的不只是 gripper 维）。
@@ -52,21 +66,21 @@ def joint_to_joint_transform(vla_output, env):
 
     # 缺的不只是 gripper 维（输入比目标至少少 2 维，或目标无 gripper 却仍不足）→ 报错
     min_required = target_dim - (1 if has_gripper else 0)
-    if arr.size < min_required:
+    if arr.shape[1] < min_required:
         raise ValueError(
-            f"joint→joint 维度不匹配：实际输出 {arr.size} 维，"
+            f"joint→joint 维度不匹配：实际输入 {arr.shape[1]} 维（chunk_size={arr.shape[0]}），"
             f"目标 env 需要 {target_dim} 维"
         )
 
-    # 截取前 target_dim 维
-    mapped = arr[:target_dim].copy()
+    # 按第一维切片，保留 N
+    mapped = arr[:, :target_dim].copy()
 
-    # 仅缺 gripper 维 → 先补足维度，再填默认占位
-    if has_gripper and arr.size == target_dim - 1:
-        mapped = np.concatenate([mapped, np.zeros(1, dtype=float)])
-        mapped[target.gripper_index] = _DEFAULT_GRIPPER
+    # 仅缺 gripper 维 → 先补足维度，再填默认占位（按 (N, 1) 拼）
+    if has_gripper and arr.shape[1] == target_dim - 1:
+        gripper_col = np.full((arr.shape[0], 1), _DEFAULT_GRIPPER)
+        mapped = np.concatenate([mapped, gripper_col], axis=1)
 
     logger.info(
-        f"[adapter] joint→joint selected: {arr.size} → {target_dim} 维"
+        f"[adapter] joint→joint selected: {arr.shape[1]} → {target_dim} 维（chunk={arr.shape[0]}）"
     )
     return mapped

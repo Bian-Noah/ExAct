@@ -517,29 +517,36 @@ class LeRobotVLA(BaseVLA):
         instruction: str,
         state: np.ndarray | None = None,
     ) -> VLAOutput:
-        """输入图片 + 自然语言指令，输出 joint 空间动作。
+        """输入图片 + 自然语言指令，输出 joint 空间动作 chunk。
+
+        Iteration 10 chunk 契约：走 `policy.predict_action_chunk(...)` 一次拿整
+        chunk（不再是 `select_action` + deque 跨调用残留）。postprocessor 输出
+        按 ndim 分派：
+          - (1, N, action_dim) → squeeze batch → (N, action_dim)
+          - (N, action_dim)    → 保持
+          - 其他                → ValueError
 
         推理链路（官方管线）：
-          raw_obs = _build_raw_obs(image, instruction, state)  # 原始 obs dict
-          preprocessed = preprocessor(raw_obs)                 # batch/归一化/tokenize
-          action = policy.select_action(preprocessed)          # 单步 (1, action_dim)
-          action = postprocessor(action)                       # 反归一化
-          → 原样返回 joint 空间动作（维度由 action_dim 决定，不硬编码）
+          raw_obs = _build_raw_obs(image, instruction, state)        # 原始 obs
+          preprocessed = preprocessor(raw_obs)                       # batch/tokenize
+          action = policy.predict_action_chunk(preprocessed)         # 整 chunk
+          action = postprocessor(action)                            # 反归一化
 
         Args:
             image: np.ndarray (H, W, 3) uint8，范围 [0, 255]。
             instruction: 自然语言指令字符串。
             state: np.ndarray 或 None。当前机器人关节角，作为
-                observation.state 喂给 policy。None 时回退到零向量
-                （旧行为，向后兼容）。
+                observation.state 喂给 policy。
 
         Returns:
-            VLAOutput：values 为 np.ndarray float（joint 空间，dim=action_dim），
+            VLAOutput：values 为 np.ndarray float，shape (N, action_dim)
+            （N 由模型 config.json 的 chunk_size 决定，smolVLA=50, ACT=100 等）；
             spec 为 joint 空间同维度。
 
         Raises:
             TypeError: image 非 np.ndarray。
-            ValueError: image.dtype 非 uint8 或维度不是 3。
+            ValueError: image.dtype 非 uint8 或维度不是 3；
+                chunk 维度不是 2 或 3。
         """
         if not isinstance(image, np.ndarray):
             raise TypeError(
@@ -557,22 +564,33 @@ class LeRobotVLA(BaseVLA):
         raw_obs = self._build_raw_obs(image, instruction, state)
         preprocessed = self._preprocessor(raw_obs)
 
+        # ★ Iteration 10：predict_action_chunk 一次拿整 chunk（不再走 deque）
         with torch.no_grad():
-            action = self._policy.select_action(preprocessed)
+            action = self._policy.predict_action_chunk(preprocessed)
 
         action = self._postprocessor(action)
 
-        # postprocessor 输出为 (1, action_dim) 或 (action_dim,)
+        # ★ Iteration 10：ndim 分派
+        # postprocessor 输出可能为 (1, N, action_dim) 或 (N, action_dim)
         if isinstance(action, torch.Tensor):
             action_np: np.ndarray = action.detach().cpu().numpy()
         else:
             action_np = np.asarray(action)
-        if action_np.ndim == 2:
-            action_np = action_np[0]
 
-        # joint 空间直通：模型输出即为关节角，原样返回。
-        # 维度裁剪/补维交给 (joint, joint) adapter（按 env.input_spec 对齐）。
-        # 旧 task 空间映射已废弃（见 git 历史 1bb7cf6 之前的 task 语义处理）。
+        if action_np.ndim == 3:
+            # (1, N, action_dim) → 去 batch 维 → (N, action_dim)
+            action_np = action_np[0]
+        elif action_np.ndim == 2:
+            # (N, action_dim) 已是目标形状
+            pass
+        elif action_np.ndim == 1:
+            # (action_dim,) → 单步 → reshape (1, action_dim)
+            action_np = action_np.reshape(1, -1)
+        else:
+            raise ValueError(
+                f"predict_action_chunk 输出 ndim={action_np.ndim}，期望 1/2/3"
+            )
+
         return VLAOutput(
             values=action_np.astype(float),
             spec=self.output_spec,

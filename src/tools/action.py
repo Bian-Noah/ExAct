@@ -135,4 +135,15 @@ class ActionTool(BaseTool):
             adapter=adapter,
         )
         _log.info(f"action 调用完成 success={result.success}")
+
+        # ★ Iteration 10 chunk 契约：在 message 中附带 final_obs["ee_pos"]
+        # 和"LLM 观察判断"字样，让 LLM 能看到末端位置，自主判断到位与否。
+        ee_pos = result.final_obs.get("ee_pos") if result.final_obs else None
+        if ee_pos is not None:
+            ee_str = f"({ee_pos[0]:.3f}, {ee_pos[1]:.3f}, {ee_pos[2]:.3f})"
+            return (
+                f"{result.message}\n"
+                f"最终末端位置: {ee_str}\n"
+                f"LLM 观察当前画面判断任务是否完成。"
+            )
         return result.message
