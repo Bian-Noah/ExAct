@@ -979,3 +979,124 @@ ExAct/data/experiment/
 | 落盘产物       | 紧耦合 result.json + trajectory.jsonl       | log txt + observer/*.png（可直接读）   |
 | 复盘方式       | 写解析脚本读 JSONL                          | 打开 log + 看图片                      |
 | 实现复杂度     | 事件总线 + 全量结构化事件 + 配置            | 一个类，dispatch 表 + 三个 handler      |
+
+## Iteration 11: LLM 纠错能力与多视角感知
+
+**状态**：⏳ 待启动
+
+**目标**：解决 Iteration 10 chunk 契约贯通后，`data/experiment/20260821_195811` 类实验中暴露的「LLM 没法纠错」与「视觉感知维度不足」两类问题，让 agent 在 VLA OOD 行为后具备主动恢复手段，并在多相机布局上对齐 VLA 训练数据契约。
+
+### 背景
+
+Iteration 10 把 chunk 契约打通后，跑 `task=把黄色海绵块夹起来`（SO101 + smolVLA 通用微调模型）观察到 6 次 `action()` 调用里 4 次末端位置被锁定在 x≈0.03~0.07 区间，距 cube x=0.3 相差 ~0.27 m 无法收敛。从 trajectory 行为反推，根因落在两个层面：
+
+#### 1. LLM 侧缺复原手段
+
+smolVLA 在 SO101 当前 URDF / home 姿态下输出 OOD 动作，单 chunk 把关节推到极限位姿附近。后续 chunk 全部运行在已饱和的关节状态上，LLM 即使发 `move right` / `grab the yellow block` 等纠正指令，末端也只能在极限范围内小幅抖动（见 `experiment.log` step 7/9/13/18 末端位置数据）。
+
+当前 pipeline 中：
+
+| 组件 | 现状 | 后果 |
+|---|---|---|
+| Agent 可调用工具集 | `observe` / `action` / `explore` | 没有把关节拉回可达空间的方法 |
+| `action` 工具 | 接收自然语言指令后调 VLA 推理 | **VLA OOD 时该路径同样 OOD，回不去** |
+| `Agent.max_tool_calls` | 默认 20（`configs/local.yaml:48`） | 即使 LLM 知道要纠错，预算也不够跑完多轮复位 |
+
+待确认的设计边界：复位会改变 `observation.state`（关节角序列）与 `ee_pos` 起点，**smolVLA 在 universal-all 数据集上 fine-tune 20k 步，对 home 起点变化的鲁棒性需要实测**——这是本次迭代必须验证而非默认成立的前提。
+
+#### 2. 视觉感知只有 1 路
+
+smolVLA config (`models/LeRobot-SO101-SmolVLA-universal-all_bs128_s20000/pretrained_model/config.json:8-26`) 要求 3 路相机 `observation.images.camera1/2/3`，每个 shape `(3, 256, 256)`：
+
+| 消费者 | 现状 | 问题 |
+|---|---|---|
+| VLA 推理 (`LeRobotVLA._build_raw_obs`，`src/executor/model/lerobot/lerobot_vla.py:413-423`) | 1 路 overhead 640x480 复制到 camera1/2/3 | wrist / side 视角完全缺失，空间推理退化为单视角 |
+| LLM 通过 `ObserveTool` | 返回 1 张 image block + 文本 | 只能从一个视角判断物体位置关系，**没有第二视角辅助消歧** |
+| env 渲染 | `PyBulletEnv.render()` 只 1 个 view matrix | 没有按相机名出多图的机制 |
+| env 配置 | `EnvConfig` 无相机列表字段 | env 端无法表达多相机布局 |
+
+#### 3. 配置与代码脱节
+
+Iteration 10 已删除 executor 的 `max_steps` 循环控制（`src/executor/__init__.py:run_action` 改为 `for action in actions`，循环边界 = VLA 输出的 N）。但两个 yaml 文件中仍保留该字段：
+
+| 文件 | 行号 | 字段 |
+|---|---|---|
+| `configs/default.yaml` | 13 | `vla.max_steps: 50` |
+| `configs/local.yaml` | 18 | `vla.max_steps: 50` |
+
+该字段已无任何代码消费（`Executor.__init__` 保留字段仅打 DeprecationWarning，未来 iteration 11+ 完全删参），**留在 yaml 里误导后续维护者以为是循环控制项**。
+
+### 核心设计（方向层面，不含修复方案）
+
+#### 方向 A：允许 LLM 主动复原机械臂
+
+在 agent 可调用工具集中新增一种「不经 VLA、直接操纵 env 状态」的工具，使 LLM 在 VLA OOD 行为后能把关节从极限位姿拉回 home。**关键约束**：
+
+- 该工具是 env 层的硬复位，不是 VLA 推理——避免 VLA OOD 时复位指令也 OOD
+- 复位行为会改变 `observation.state` 与 `ee_pos` 起点 → 必须验证对 VLA 推理的影响
+- 复位动作需算入 `agent.max_tool_calls` 预算（与 observe/action 平起平坐），还是单独计数？**待讨论**
+
+需要明确的边界问题：
+
+1. 复位时若 cube 已被夹在 gripper 上，要不要先 drop？仿真里 cube 始终在地面，本次不讨论；真实硬件场景下要讨论
+2. 复位后是否自动 observe 一次给 LLM 新画面？
+3. `Exploration` 笔记本是否记录复位事件，便于跨实验复盘「哪些 VLA OOD 场景必须复位」？
+
+#### 方向 B：env 与消费者侧对齐多相机契约
+
+让 env 能产多视角图像，并让 VLA 与 LLM 都消费到独立视角而非复制图。
+
+**env 端需要表达的边界**：
+
+- 相机数量与命名（`camera1` / `camera2` / `camera3` 是否直接用模型 config 里的键名，避免再起映射层？）
+- 相机物理位置（wrist 视角是否需要在 gripper 上挂跟随相机的 URDF link？）
+- 相机分辨率（模型期望 256x256，env 当前 640x480——render 时直接出 256x256 还是 resize 后处理？）
+
+**消费侧需要明确的边界**：
+
+- VLA 的 `_build_raw_obs` 按哪个键名取哪张图？按相机名硬编码还是按 `_resolved_image_keys` 探测？
+- LLM 端 `ObserveTool` 返回多张图时，LangChain 标准 content blocks 怎么排布（`list[{"type":"image","url":...}, ...]` 顺序如何）
+- 多视角与 `ImageStore` 的关系（每次 observe 存几张图到 store？key 怎么命名？）
+
+#### 方向 C：清理过期 config 字段
+
+从 yaml 移除已无代码消费的字段：
+
+| 字段 | 文件 | 现状 |
+|---|---|---|
+| `vla.max_steps` | `configs/default.yaml:13`、`configs/local.yaml:18` | 已废弃，iteration 10 后无消费方 |
+
+需要确认的边界：是否同步清理 `Executor.__init__` 的 `max_steps` 参数与 `DeprecationWarning`（iteration 11 一起移除，还是留到 iteration 12）？
+
+### 任务（迭代方向，问题陈述）
+
+1. **复原机制**
+   - 缺一种把关节从极限位姿拉回 home 的 agent 可调用入口
+   - LLM 在 VLA OOD 后没有任何纠错手段，只能继续发 VLA 指令试图纠正
+   - 复位对 VLA 推理上下文的影响未验证（home 起点变化是否破坏 smolVLA 推断）
+
+2. **多角度图片**
+   - env 只产 1 张图，物理上缺少多视角配置入口
+   - VLA `_build_raw_obs` 把同一张图塞进 3 个相机键，模型实际只看到单视角
+   - LLM 通过 observe 工具也只能看到 1 张图，缺第二视角辅助判断
+
+3. **配置脱节**
+   - `vla.max_steps` 字段在 iteration 10 之后无任何消费方
+   - 仍保留在 default.yaml 与 local.yaml 中误导后续维护
+
+### 不在本迭代
+
+- ❌ 关节 OOD 行为的检测与防护（项目方明确接受 VLA OOD 行为，**不修复关节卡死**）
+- ❌ VLA fine-tune / 训练数据调整（让模型对 SO101 当前 cube 场景不 OOD）
+- ❌ 动作空间语义适配（`SO101Robot.step_action` 把 action 当 radian delta 的解读，iteration 10 验证后未改）
+- ❌ 指令白名单放宽（`grasp` / `take` 等动词被拒来自论文约束，**保留**）
+- ❌ `parse_target_pos` 自然语言识别（未在本批反馈中提及）
+- ❌ 评估框架与对照实验（顺延）
+
+### 依赖与待验证项
+
+| 项 | 风险 | 验证方式 |
+|---|---|---|
+| 复位对 smolVLA 上下文影响 | fine-tune 量小，home 起点变化可能让推理更 OOD | P0 阶段：复位后跑同一指令，对比 ee_pos 终点是否一致 |
+| wrist 视角相机实现 | SO101 单臂 URDF 是否支持 link-挂载相机 | 检查 `so101_new_calib.urdf` 的 link 结构 |
+| env 多相机配置 schema | 现有 `EnvConfig` 字段是否需要重构 | 调研 env.camera_resolution 等已有字段是否复用 |
