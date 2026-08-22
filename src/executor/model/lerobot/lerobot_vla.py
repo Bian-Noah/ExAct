@@ -537,11 +537,16 @@ class LeRobotVLA(BaseVLA):
 
     def predict(
         self,
-        image: np.ndarray,
+        image: dict[str, np.ndarray],
         instruction: str,
         state: np.ndarray | None = None,
     ) -> VLAOutput:
-        """输入图片 + 自然语言指令，输出 joint 空间动作 chunk。
+        """输入多相机图片 dict + 自然语言指令，输出 joint 空间动作 chunk。
+
+        iter11-reset-multicam：image 参数类型从 np.ndarray 改为
+        dict[str, np.ndarray]（key 为相机名）。dtype/ndim 校验移到 dict 内的
+        首张图上做（与 OpenVLA.predict 一致）；多相机取图逻辑在 _build_raw_obs
+        里按 _resolved_image_keys 逐 key 取图，缺失 fallback 用首张图占位并 warn。
 
         Iteration 10 chunk 契约：走 `policy.predict_action_chunk(...)` 一次拿整
         chunk（不再是 `select_action` + deque 跨调用残留）。postprocessor 输出
@@ -557,7 +562,9 @@ class LeRobotVLA(BaseVLA):
           action = postprocessor(action)                            # 反归一化
 
         Args:
-            image: np.ndarray (H, W, 3) uint8，范围 [0, 255]。
+            image: dict[str, np.ndarray]，多相机 RGB 图。key 为相机名
+                （CameraSpec.name），value 为 RGB ndarray (H, W, 3) uint8。
+                单相机配置时 dict 长度 1。
             instruction: 自然语言指令字符串。
             state: np.ndarray 或 None。当前机器人关节角，作为
                 observation.state 喂给 policy。
@@ -568,19 +575,27 @@ class LeRobotVLA(BaseVLA):
             spec 为 joint 空间同维度。
 
         Raises:
-            TypeError: image 非 np.ndarray。
-            ValueError: image.dtype 非 uint8 或维度不是 3；
+            TypeError: image 非 dict 或内层图非 np.ndarray。
+            ValueError: image dict 为空、内层图 dtype 非 uint8 或维度不是 3；
                 chunk 维度不是 2 或 3。
         """
-        if not isinstance(image, np.ndarray):
+        if not isinstance(image, dict):
             raise TypeError(
-                f"image 必须为 np.ndarray，得到 {type(image).__name__}"
+                f"image 必须为 dict[str, np.ndarray]，得到 {type(image).__name__}"
             )
-        if image.dtype != np.uint8:
-            raise ValueError(f"image.dtype 必须为 uint8，得到 {image.dtype}")
-        if image.ndim != 3 or image.shape[2] != 3:
+        if not image:
+            raise ValueError("image dict 为空，至少需 1 张相机图")
+        first_key = next(iter(image))
+        first_img = image[first_key]
+        if not isinstance(first_img, np.ndarray):
+            raise TypeError(
+                f"image['{first_key}'] 不是 np.ndarray，得到 {type(first_img).__name__}"
+            )
+        if first_img.dtype != np.uint8:
+            raise ValueError(f"image.dtype 必须为 uint8，得到 {first_img.dtype}")
+        if first_img.ndim != 3 or first_img.shape[2] != 3:
             raise ValueError(
-                f"image 形状必须为 (H, W, 3)，得到 {image.shape}"
+                f"image 形状必须为 (H, W, 3)，得到 {first_img.shape}"
             )
 
         self._ensure_loaded()
@@ -614,6 +629,17 @@ class LeRobotVLA(BaseVLA):
             raise ValueError(
                 f"predict_action_chunk 输出 ndim={action_np.ndim}，期望 1/2/3"
             )
+
+        # 单位转换:lerobot SO101 训练约定 action 单位为"度"(关节)+ 0-100(gripper),
+        # 与本项目 PyBullet SO101 的弧度制不一致。若不转换,大数值会被
+        # POSITION_CONTROL 钳到关节限位,机械臂被卷到错位姿。
+        # JointMockVLA 走 JointMockVLA.predict,不经此处,契约不受影响。
+        if action_np.shape[1] >= 5:
+            action_np[:, :5] = np.deg2rad(action_np[:, :5])
+        if action_np.shape[1] >= 6:
+            # gripper:lerobot RANGE_0_100 (0=close,100=open) -> PyBullet rad
+            # SO101 gripper 关节限位[-0.174533, 1.745329]
+            action_np[:, 5] = -0.174533 + (action_np[:, 5] / 100.0) * (1.745329 - (-0.174533))
 
         return VLAOutput(
             values=action_np.astype(float),

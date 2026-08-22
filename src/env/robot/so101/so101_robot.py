@@ -48,21 +48,27 @@ class SO101Robot:
         """执行一步动作：POSITION_CONTROL 驱动 5 臂关节 + gripper + 推进物理。
 
         Args:
-            action: joint 空间动作（np.ndarray 或类似可索引容器，前 5 维为**关节角增量**
-                rad，第 6 维为 gripper 开合 0~1）。
-                语义对齐 VLA 输出："当前关节角 + action = 目标位置"（增量控制），
-                而非直接把 action 当作目标位置。
+            action: joint 空间动作（np.ndarray 或类似可索引容器，前 5 维为**绝对关节角
+                目标** rad，第 6 维为 gripper 开合 0~1）。
+                VLA（SmolVLA / LeRobot 训练约定 action_space="joint_angle"）直接输出
+                目标关节角，env 原样作为 POSITION_CONTROL 的 targetPositions 使用。
+                注意：JointMockVLA 输出的 [-0.1, 0.1] rad 小幅值在绝对语义下会成为
+                "目标 ≈ 0" 的近零动作，mock 不再产生大幅可见运动 — 这是为对齐真 VLA
+                语义必须接受的副作用（详见 docstring 外的 TODO 注释）。
             robot_id: pybullet 中该机器人的 body id。
             client_id: pybullet 连接 id。
         """
-        deltas = list(action)[: len(self.arm_joint_indices)]
-        # 读取当前关节角，target = current + delta（增量控制）
-        current_states = p.getJointStates(
-            robot_id, self.arm_joint_indices, physicsClientId=client_id,
-        )
-        target_positions = [
-            cur + d for cur, d in zip((s[0] for s in current_states), deltas)
-        ]
+        # TODO(增量 vs 绝对值 语义切换):
+        #     现状：step_action 把 action 当作**绝对关节角**(VLA 真模型对齐)。
+        #     副作用：JointMockVLA 仍按"增量 [-0.1, 0.1] rad"输出，在绝对语义下被解读
+        #     为"目标 ≈ 0 rad"的近零动作，mock 测试不再产生可见运动。
+        #     后续处理方向（任选其一）：
+        #       1) JointMockVLA 改成输出绝对关节角范围（与训练数据 stats 一致）
+        #       2) 在 SO101Robot / joint_to_joint adapter 加"语义标志位"，区分
+        #          增量源(mock)与绝对源(VLA)，各自按需解读
+        #       3) 把"绝对 vs 增量"信息加入 ActionSpec(spec 加字段)，env 按 spec 分派
+        #     关联问题：增量 ↔ 绝对值方向是否需要保留为 env 行为可配置项？需后续讨论。
+        target_positions = list(action)[: len(self.arm_joint_indices)]
 
         p.setJointMotorControlArray(
             robot_id,

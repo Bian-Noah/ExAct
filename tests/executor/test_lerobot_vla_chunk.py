@@ -54,7 +54,7 @@ def test_predict_calls_predict_action_chunk_not_select_action():
     背景：旧实现调 select_action 走 deque 队列，会跨 action 调用污染新 chunk。
     """
     v = _make_mock_LeRobotVLA()
-    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    image = {"observation.images.top": np.zeros((10, 10, 3), dtype=np.uint8)}
     v.predict(image, "move")
 
     assert v._policy.predict_action_chunk_called == 1
@@ -66,7 +66,7 @@ def test_chunk_postprocess_drops_batch_dim():
     v = _make_mock_LeRobotVLA()
     v._policy.set_next_return(np.zeros((1, 50, 6), dtype=float))
 
-    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    image = {"observation.images.top": np.zeros((10, 10, 3), dtype=np.uint8)}
     result = v.predict(image, "move")
 
     assert isinstance(result.values, np.ndarray)
@@ -78,7 +78,7 @@ def test_chunk_postprocess_keeps_2d_input():
     v = _make_mock_LeRobotVLA()
     v._policy.set_next_return(np.zeros((50, 6), dtype=float))
 
-    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    image = {"observation.images.top": np.zeros((10, 10, 3), dtype=np.uint8)}
     result = v.predict(image, "move")
 
     assert result.values.shape == (50, 6)
@@ -89,7 +89,7 @@ def test_chunk_postprocess_ndim_1_reshapes_to_1_n():
     v = _make_mock_LeRobotVLA()
     v._policy.set_next_return(np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]))
 
-    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    image = {"observation.images.top": np.zeros((10, 10, 3), dtype=np.uint8)}
     result = v.predict(image, "move")
 
     assert result.values.shape == (1, 6)
@@ -100,7 +100,7 @@ def test_chunk_postprocess_ndim_4_raises():
     v = _make_mock_LeRobotVLA()
     v._policy.set_next_return(np.zeros((1, 50, 6, 1), dtype=float))
 
-    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    image = {"observation.images.top": np.zeros((10, 10, 3), dtype=np.uint8)}
     with pytest.raises(ValueError, match="ndim"):
         v.predict(image, "move")
 
@@ -108,7 +108,7 @@ def test_chunk_postprocess_ndim_4_raises():
 def test_repeated_predict_no_deque_state_leak():
     """Iteration 10：连续 2 次 predict 都触发 predict_action_chunk（无 deque 残留）。"""
     v = _make_mock_LeRobotVLA()
-    image = np.zeros((10, 10, 3), dtype=np.uint8)
+    image = {"observation.images.top": np.zeros((10, 10, 3), dtype=np.uint8)}
 
     v.predict(image, "move_1")
     v.predict(image, "move_2")
