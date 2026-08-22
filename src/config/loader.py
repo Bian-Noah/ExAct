@@ -17,6 +17,33 @@ _ENV_MODE_VALUES: frozenset[str] = frozenset({"direct", "gui"})
 _ENV_RENDERER_VALUES: frozenset[str] = frozenset({"auto", "cpu", "gpu"})
 
 
+# iter11-reset-multicam:多相机支持,env 端相机列表配置项
+@dataclass(frozen=True)
+class CameraSpec:
+    """env 相机配置项（iter11-reset-multicam）。
+
+    Attributes:
+        name: 相机名,作为 obs["rgb"] 的 key。需与下游 VLA policy config
+            的 VISUAL 键名一致（如 smolVLA: observation.images.camera1/2/3）。
+        target: 注视点 (x, y, z),世界坐标。
+        distance: 相机到 target 的距离（米）。
+        yaw / pitch / roll: 相机姿态（度）。
+        fov: 视角（度）,默认 60。
+        resolution: (W, H) 像素,默认 (640, 480)。
+            VLA 模型期望 256x256 时可在每相机独立配小分辨率,
+            避免 render 后再 resize 的开销。
+    """
+
+    name: str
+    target: tuple[float, float, float]
+    distance: float
+    yaw: float
+    pitch: float
+    roll: float
+    fov: float = 60.0
+    resolution: tuple[int, int] = (640, 480)
+
+
 def _resolve_field_types(cls: type) -> dict[str, type]:
     """使用 get_type_hints 解析 dataclass 的真实字段类型（处理 PEP 563 字符串注解）。"""
     try:
@@ -52,6 +79,17 @@ class EnvConfig:
     mode: Literal["direct", "gui"] = "direct"
     renderer: Literal["auto", "cpu", "gpu"] = "auto"
     camera_resolution: tuple[int, int] = (640, 480)
+    # iter11-reset-multicam:多相机支持。默认 1 个 overhead 相机,与 iter 2 行为兼容。
+    cameras: tuple[CameraSpec, ...] = (
+        CameraSpec(
+            name="observation.images.top",
+            target=(0.5, 0.0, 0.5),
+            distance=1.5,
+            yaw=50,
+            pitch=-35,
+            roll=0,
+        ),
+    )
     use_gui: bool = False  # deprecated: 由 mode 替代，保留向后兼容
 
 
@@ -96,7 +134,7 @@ class MockConfig:
 class VLAConfig:
     backend: str = "mock"
     model_path: Optional[str] = None
-    max_steps: int = 50
+    # iter11-reset-multicam:max_steps 字段已删除(iter 10 后无消费方)
     mock: MockConfig = field(default_factory=MockConfig)
     lerobot: LerobotConfig = field(default_factory=LerobotConfig)
 
@@ -342,6 +380,29 @@ def _from_dict(data: dict, cls: Type[T]) -> T:
                     f"字段 'EnvConfig.renderer' 取值错误：期望 {_ENV_RENDERER_VALUES} 之一，得到 {raw_value!r}"
                 )
             kwargs[fname] = raw_value
+            continue
+        # iter11-reset-multicam:cameras 特殊处理——list of dict → tuple[CameraSpec, ...]
+        if cls is EnvConfig and fname == "cameras":
+            if not isinstance(raw_value, list):
+                raise ValueError(
+                    f"字段 'EnvConfig.cameras' 格式错误：期望 list，得到 {type(raw_value).__name__}"
+                )
+            cameras_list: list[CameraSpec] = []
+            seen_names: set[str] = set()
+            for i, cam_data in enumerate(raw_value):
+                if not isinstance(cam_data, dict):
+                    raise ValueError(
+                        f"字段 'EnvConfig.cameras[{i}]' 格式错误：期望 dict，得到 {type(cam_data).__name__}"
+                    )
+                cam_spec = _from_dict(cam_data, CameraSpec)
+                if cam_spec.name in seen_names:
+                    warnings.warn(
+                        f"配置 'EnvConfig.cameras' 中存在重复 name '{cam_spec.name}'，"
+                        f"后者将覆盖前者的渲染结果（dict key 冲突）"
+                    )
+                seen_names.add(cam_spec.name)
+                cameras_list.append(cam_spec)
+            kwargs[fname] = tuple(cameras_list)
             continue
         # 通用 tuple 字段：list → tuple 转换 + 元素类型校验
         # 适用于 RobotConfig.arm_joint_indices / base_position 等

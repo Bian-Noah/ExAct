@@ -40,7 +40,7 @@ class FakeEnv(BaseEnv):
     def _obs(self):
         import numpy as np
         return {
-            "rgb": np.zeros((10, 10, 3), dtype="uint8"),
+            "rgb": {"cam1": np.zeros((10, 10, 3), dtype="uint8")},
             "object_info": [{"name": "cube", "pos": [0.5, 0, 0.1]}],
             "ee_pos": self._ee_pos,
             "state_desc": "fake",
@@ -51,7 +51,7 @@ def _make_setup():
     env = FakeEnv()
     env.reset()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=5)
+    executor = Executor(vla)
     return env, executor, vla
 
 

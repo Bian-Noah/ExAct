@@ -34,7 +34,8 @@ def test_functional_scenario_a_load_default_yaml():
     # vla
     assert cfg.vla.backend == "mock"
     assert cfg.vla.model_path is None
-    assert cfg.vla.max_steps == 50
+    # iter11-reset-multicam:max_steps 已移除
+    assert not hasattr(cfg.vla, "max_steps")
     # llm（api_key 只要是占位符或空均合法）
     assert cfg.llm.api_key in {"YOUR_API_KEY_HERE", ""} or len(cfg.llm.api_key) > 0
     assert cfg.llm.model == "MiniMax-M3"

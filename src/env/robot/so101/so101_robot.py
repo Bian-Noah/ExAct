@@ -30,6 +30,15 @@ class SO101Robot:
         self.ee_link_index = robot_config.so101.ee_link_index
         self.gripper_joint_index = robot_config.so101.gripper_joint_index
 
+    def home_joint_positions(self) -> tuple[float, ...]:
+        """iter11-reset-multicam:SO101 5 臂关节 home pose。
+
+        全零位姿（臂关节在 home 位姿附近,可作为复位起点）。
+        仅覆盖 arm_joint_indices 对应的臂关节,不含 gripper——
+        gripper 由 step_action 独立控制,复位只动臂。
+        """
+        return (0.0, 0.0, 0.0, 0.0, 0.0)
+
     @property
     def input_spec(self) -> ActionSpec:
         """SO101 消费 joint 空间 6 维动作（5 臂 + gripper）。"""
@@ -74,8 +83,20 @@ class SO101Robot:
                 physicsClientId=client_id,
             )
 
-        for _ in range(10):
+        # 推进物理直至 5 臂关节收敛到目标（部分执行 → 全部执行）。
+        # POSITION_CONTROL 靠 PD 逐步逼近，固定步数（如 10）会中途返回导致
+        # 关节只走一部分、末端位移偏小；改为轮询关节误差直至收敛，超时兜底。
+        converge_tol = 1e-3  # 关节误差阈值 rad（≈0.057°）
+        max_steps = 300      # 兜底上限（300 步 ≈ 1.25s @240Hz），防限位/卡死死循环
+        for step in range(max_steps):
             p.stepSimulation(physicsClientId=client_id)
+            if step % 5 == 0:  # 每 5 步查一次误差，降低 getJointStates 开销
+                states = p.getJointStates(
+                    robot_id, self.arm_joint_indices, physicsClientId=client_id
+                )
+                err = max(abs(s[0] - t) for s, t in zip(states, target_positions))
+                if err < converge_tol:
+                    break
 
     def get_joint_state(self, robot_id: int, client_id: int) -> np.ndarray:
         """读取 SO101 当前关节角（含 gripper）作为 VLA 的 state 输入。

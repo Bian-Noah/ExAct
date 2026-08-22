@@ -86,7 +86,7 @@ def _patch_pipeline_basic(monkeypatch):
 def _make_config_with_explore(enabled: bool, root: str) -> AppConfig:
     return AppConfig(
         env=EnvConfig(use_gui=False, camera_resolution=(64, 48)),
-        vla=VLAConfig(backend="mock", max_steps=5),
+        vla=VLAConfig(backend="mock"),
         llm=LLMConfig(api_key="sk-dummy"),
         explore=ExploreConfig(enabled=enabled, root=root),
         robot=RobotConfig(),

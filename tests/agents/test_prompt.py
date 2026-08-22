@@ -17,9 +17,17 @@ class TestDefaultSystemPrompt:
         assert "observe 工具会返回" in DEFAULT_SYSTEM_PROMPT
 
     def test_has_image_declaration_requirements(self):
-        """最终回答须声明是否看到图像（肯定/兜底前缀）。"""
-        assert "✓ 本次执行看到了图像" in DEFAULT_SYSTEM_PROMPT
-        assert "✗ 本次执行未能获取图像" in DEFAULT_SYSTEM_PROMPT
+        """最终回答须声明是否看到图像（肯定/兜底前缀）。
+
+        iter11-reset-multicam:措辞升级为"N 个视角",此处只验证前缀仍存在。
+        """
+        assert "✓ 本次执行看到了" in DEFAULT_SYSTEM_PROMPT
+        assert "✗ 本次执行" in DEFAULT_SYSTEM_PROMPT
+
+    def test_has_multi_view_and_reset_declaration(self):
+        """iter11:最终回答须声明多视角数量 + 复位工具可用性。"""
+        assert "个视角" in DEFAULT_SYSTEM_PROMPT
+        assert "复位工具" in DEFAULT_SYSTEM_PROMPT
 
     def test_has_attribution_requirement(self):
         """失败时应输出归因行。"""

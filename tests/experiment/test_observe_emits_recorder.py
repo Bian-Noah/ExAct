@@ -34,7 +34,8 @@ class FakeEnv:
         self.call_count += 1
         rgb = None
         if include_rgb and self._include_rgb:
-            rgb = np.random.randint(0, 256, self._rgb_shape, dtype=np.uint8)
+            # iter11-reset-multicam:rgb 改为 dict[str, ndarray](单相机 cam1)
+            rgb = {"cam1": np.random.randint(0, 256, self._rgb_shape, dtype=np.uint8)}
         return {
             "rgb": rgb,
             "ee_pos": (0.0, 0.0, 0.5),

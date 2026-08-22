@@ -24,7 +24,7 @@ class FakeEnv(BaseEnv):
 
     def __init__(self):
         self._current_obs = {
-            "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+            "rgb": {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)},
             "ee_pos": (0.0, 0.0, 0.0),
             "object_info": [],
             "state_desc": "",
@@ -80,7 +80,7 @@ class FakeEnvWithEePosControl(BaseEnv):
         return self._make_obs(), 0.0, False, {}
 
     def render(self):
-        return np.zeros((10, 10, 3), dtype=np.uint8)
+        return {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)}
 
     def get_obs(self, include_rgb: bool = True):
         return self._make_obs()
@@ -94,7 +94,7 @@ class FakeEnvWithEePosControl(BaseEnv):
 
     def _make_obs(self):
         return {
-            "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+            "rgb": {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)},
             "ee_pos": self._ee_pos,
             "object_info": [],
             "state_desc": "",
@@ -106,7 +106,7 @@ class FakeEnvRaisingStep(BaseEnv):
 
     def reset(self, task_spec=None, seed=0):
         return {
-            "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+            "rgb": {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)},
             "ee_pos": (0.0, 0.0, 0.0),
         }
 
@@ -114,11 +114,11 @@ class FakeEnvRaisingStep(BaseEnv):
         raise RuntimeError("FakeEnv step error for testing")
 
     def render(self):
-        return np.zeros((10, 10, 3), dtype=np.uint8)
+        return {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)}
 
     def get_obs(self, include_rgb: bool = True):
         return {
-            "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+            "rgb": {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)},
             "ee_pos": (0.0, 0.0, 0.0),
         }
 
@@ -137,7 +137,7 @@ def test_mock_vla_runs_chunk_of_1():
     """MockVLA 返回 (1, 7) → executor 跑 1 步（不是 max_steps 步）。"""
     env = FakeEnv()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=50)  # max_steps 兼容保留，不用于循环
+    executor = Executor(vla)  # max_steps 兼容保留，不用于循环
     result = executor.run_action(env, "move", done_criteria="unknown")
     assert result.success is False
     assert result.steps == 1
@@ -148,24 +148,10 @@ def test_executor_runs_full_chunk_no_truncation():
     """MockVLA chunk=1 → executor 跑 1 步即使 max_steps=50 也不截断。"""
     env = FakeEnv()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=50)
+    executor = Executor(vla)
     result = executor.run_action(env, "move", done_criteria="unknown")
     assert result.steps == 1
     assert env.step_count == 1
-
-
-def test_max_steps_param_deprecation_warning():
-    """Executor(max_steps=非默认) → DeprecationWarning。"""
-    with pytest.warns(DeprecationWarning, match="max_steps"):
-        Executor(MockVLA(seed=0), max_steps=100)
-
-
-def test_max_steps_default_no_warning():
-    """Executor(max_steps=50 默认值) → 不报警告。"""
-    import warnings as _w
-    with _w.catch_warnings():
-        _w.simplefilter("error", DeprecationWarning)
-        Executor(MockVLA(seed=0))  # 默认 max_steps=50
 
 
 def test_check_done_called_once_after_chunk():
@@ -182,7 +168,7 @@ def test_check_done_called_once_after_chunk():
     try:
         env = FakeEnv()
         vla = MockVLA(seed=0)
-        executor = Executor(vla, max_steps=50)
+        executor = Executor(vla)
         executor.run_action(env, "move", done_criteria="unknown")
         assert call_count[0] == 1
     finally:
@@ -196,7 +182,7 @@ def test_no_check_done_truncation():
     """
     env = FakeEnv()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=50)
+    executor = Executor(vla)
     result = executor.run_action(env, "stay", done_criteria="reached")  # 无 target_pos
     assert result.steps == 1  # chunk 跑完，不是被反向兜底截断成 0
     assert result.success is False  # target_pos 未提供 → False
@@ -207,7 +193,7 @@ def test_adapter_called_once_per_run_action():
     """adapter 只被调 1 次（一次性转换整 chunk）。"""
     env = FakeEnv()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=50)
+    executor = Executor(vla)
 
     call_count = [0]
     received_chunks = []
@@ -230,7 +216,7 @@ def test_executor_result_field_types():
     """ExecResult 字段类型正确。"""
     env = FakeEnv()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=3)
+    executor = Executor(vla)
     result = executor.run_action(env, "move", done_criteria="unknown")
     assert isinstance(result, ExecResult)
     assert isinstance(result.success, bool)
@@ -245,7 +231,7 @@ def test_executor_does_not_hold_env():
     env2 = FakeEnv()
     env2._current_obs["ee_pos"] = (1.0, 1.0, 1.0)
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=3)
+    executor = Executor(vla)
     result1 = executor.run_action(env1, "move", done_criteria="unknown")
     result2 = executor.run_action(env2, "move", done_criteria="unknown")
     assert result1.final_obs["ee_pos"] == (0.0, 0.0, 0.0)
@@ -256,7 +242,7 @@ def test_executor_exception_passthrough():
     """FakeEnv.step 抛 RuntimeError → run_action 不捕获，异常向上抛。"""
     env = FakeEnvRaisingStep()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=5)
+    executor = Executor(vla)
     with pytest.raises(RuntimeError, match="FakeEnv step error"):
         executor.run_action(env, "move", done_criteria="unknown")
 
@@ -265,7 +251,7 @@ def test_executor_message_includes_step_count():
     """message 含 "执行 VLA 规划的 N 步"。"""
     env = FakeEnv()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=50)
+    executor = Executor(vla)
     result = executor.run_action(env, "move", done_criteria="unknown")
     assert "执行 VLA 规划的 1 步" in result.message
 
@@ -310,7 +296,7 @@ class FakeEnvWithTargetApproach(BaseEnv):
         return self._make_obs(), 0.0, False, {}
 
     def render(self):
-        return np.zeros((10, 10, 3), dtype=np.uint8)
+        return {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)}
 
     def get_obs(self, include_rgb: bool = True):
         return self._make_obs()
@@ -324,7 +310,7 @@ class FakeEnvWithTargetApproach(BaseEnv):
 
     def _make_obs(self):
         return {
-            "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+            "rgb": {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)},
             "ee_pos": self._ee_pos,
             "object_info": [],
             "state_desc": "",
@@ -337,7 +323,7 @@ def test_executor_with_target_pos_chunk_1_reached():
     # satisfy_at_step=1：第 1 步就到达
     env = FakeEnvWithTargetApproach(target_pos, satisfy_at_step=1)
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=10)
+    executor = Executor(vla)
     result = executor.run_action(
         env, "move to target", done_criteria="reached", target_pos=target_pos
     )
@@ -352,7 +338,7 @@ def test_executor_with_target_pos_chunk_1_not_reached():
     # satisfy_at_step=100 远超 chunk=1
     env = FakeEnvWithTargetApproach(target_pos, satisfy_at_step=100)
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=5)
+    executor = Executor(vla)
     result = executor.run_action(
         env, "move to target", done_criteria="reached", target_pos=target_pos
     )
@@ -364,7 +350,7 @@ def test_executor_with_target_pos_chunk_1_not_reached():
 # ========== robot-vla-adapter：adapter 参数 ==========
 
 _ADAPTER_TEST_OBS = {
-    "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+    "rgb": {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)},
     "ee_pos": (0.0, 0.0, 0.0),
     "object_info": [],
     "state_desc": "adapter test",
@@ -383,7 +369,7 @@ def test_run_action_with_adapter_transforms_chunk():
     env.step = capturing_env
 
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=1)
+    executor = Executor(vla)
 
     def fake_adapter(vla_output, env):
         observed["adapter_received"] = np.asarray(vla_output).copy()
@@ -408,7 +394,7 @@ def test_run_action_adapter_none_direct():
     env.step = capturing_env
 
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=1)
+    executor = Executor(vla)
     executor.run_action(env, "move", done_criteria="unknown", adapter=None)
     # env.step 被调 1 次（chunk=1），收到 shape (7,) 单步动作
     assert len(observed["actions"]) == 1
@@ -462,7 +448,7 @@ def test_run_action_joint_to_joint_chunked_link():
     from utils.adapter.adapters.joint_to_joint import joint_to_joint_transform
 
     vla = JointVLA()
-    executor = Executor(vla, max_steps=1)
+    executor = Executor(vla)
     executor.run_action(env, "move", done_criteria="unknown", adapter=joint_to_joint_transform)
 
     # executor 按第一维迭代 step（chunk=1 故 step 1 次）；env.step 收到单步 (6,) 动作

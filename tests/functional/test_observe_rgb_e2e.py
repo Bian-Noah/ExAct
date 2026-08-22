@@ -26,10 +26,13 @@ def test_observe_gets_rgb_end_to_end():
         text = result[0]["text"]
         # 文本格式
         assert "末端执行器位置" in text
-        # 验证 env 拿到了 RGB
+        # 验证 env 拿到了 RGB(iter11-reset-multicam:dict[str, ndarray])
         obs = env.get_obs(include_rgb=True)
         assert obs["rgb"] is not None
-        assert obs["rgb"].shape == (480, 640, 3)
-        assert obs["rgb"].dtype == np.uint8
+        assert isinstance(obs["rgb"], dict)
+        assert "observation.images.top" in obs["rgb"]
+        rgb = obs["rgb"]["observation.images.top"]
+        assert rgb.shape == (480, 640, 3)
+        assert rgb.dtype == np.uint8
     finally:
         env.close()

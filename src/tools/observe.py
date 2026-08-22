@@ -15,8 +15,10 @@ Iteration 5：_run() 返回结构化 list[dict]（LangChain 标准 content block
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional, Type
 
+import numpy as np
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
@@ -130,19 +132,23 @@ class ObserveTool(BaseTool):
         self._recorder = get_recorder()
 
     def _run(self, target: Optional[str] = None) -> list[dict]:
-        """执行观察，返回结构化 list[dict]。
+        """执行观察,返回结构化 list[dict]。
 
-        返回形态（LangChain 标准 content blocks）:
+        返回形态(LangChain 标准 content blocks):
             [
                 {"type": "text", "text": "..."},
-                {"type": "image", "url": "img://observations/..."},  # 条件追加
+                {"type": "image", "url": "img://observations/{cam_name}/..."},  # 每相机 1 个
+                ...
             ]
 
+        iter11-reset-multicam:遍历 obs["rgb"] dict 每个相机,每相机生成 1 个
+        image block。ImageStore category 改为 f"observations/{cam_name}"。
+
         Args:
-            target: 可选物体名过滤，大小写不敏感。None 时返回全部物体。
+            target: 可选物体名过滤,大小写不敏感。None 时返回全部物体。
 
         Returns:
-            list[dict]：至少 1 个 text 块；image 块仅在 image_store 与 rgb 都可用时出现。
+            list[dict]:至少 1 个 text 块;每相机 1 个 image 块(若 image_store 与 rgb 可用)。
         """
         _log = logging.getLogger("observe")
         _log.info(f"observe 调用开始 target={target}")
@@ -151,26 +157,34 @@ class ObserveTool(BaseTool):
         _log.info("observe 调用完成")
 
         # Iteration 3：埋点保存 RGB 图像（异常隔离由 recorder 内部 try/except 处理）
-        rgb = obs.get("rgb")
-        image_block: dict | None = None
-        if rgb is not None:
-            self._recorder.emit("observe_image", image=rgb, idx=self._call_count)
-            self._recorder.emit(
-                "log",
-                message=f"[observe] saved observer/{self._call_count:03d}.png",
-            )
-            self._call_count += 1
+        rgb_dict = obs.get("rgb")
+        image_blocks: list[dict] = []
+        if rgb_dict is not None:
+            # iter11-reset-multicam:遍历每个相机,分别存 ImageStore + 生成 image block
+            for cam_name, rgb in rgb_dict.items():
+                if not isinstance(rgb, np.ndarray):
+                    continue
+                self._recorder.emit("observe_image", image=rgb, idx=self._call_count)
+                self._recorder.emit(
+                    "log",
+                    message=f"[observe] saved observer/{self._call_count:03d}.png "
+                    f"(camera={cam_name})",
+                )
 
-            # Iteration 5：若 image_store 已注入，保存到 ImageStore 并追加 image content block
-            if self.image_store is not None:
-                image_url = self.image_store.save(rgb, category="observations")
-                # Iteration 5 fix：把 img:// 翻译成 provider 可消费的 mm_file://{file_id}
-                image_url = self.image_store.upload_to_minimax(image_url)
-                image_block = {"type": "image", "url": image_url}
+                # Iteration 5：若 image_store 已注入,保存到 ImageStore 并追加 image content block
+                # iter11-reset-multicam:category 用 f"observations_{cam_name}" 替代 f"observations/{cam_name}"
+                # ImageStore url_scheme 只允许 [a-zA-Z0-9_],相机名中的 . 和 / 需替换为 _
+                if self.image_store is not None:
+                    safe_cam = re.sub(r"[^a-zA-Z0-9_]", "_", cam_name)
+                    image_url = self.image_store.save(rgb, category=f"observations_{safe_cam}")
+                    # Iteration 5 fix：把 img:// 翻译成 provider 可消费的 mm_file://{file_id}
+                    image_url = self.image_store.upload_to_minimax(image_url)
+                    image_blocks.append({"type": "image", "url": image_url})
+
+            self._call_count += 1
 
         text_lines = _format_text_lines(obs, target)
         content: list[dict] = [{"type": "text", "text": "\n".join(text_lines)}]
-        if image_block is not None:
-            content.append(image_block)
+        content.extend(image_blocks)
 
         return content

@@ -56,15 +56,15 @@ class _FakeEnvWithRGB:
 
     def step(self, action):
         import numpy as np
-        return {"rgb": np.zeros((32, 32, 3), dtype=np.uint8)}, 0.0, False, {}
+        return {"rgb": {"cam1": np.zeros((32, 32, 3), dtype=np.uint8)}}, 0.0, False, {}
 
     def render(self):
         import numpy as np
-        return np.zeros((32, 32, 3), dtype=np.uint8)
+        return {"cam1": np.zeros((32, 32, 3), dtype=np.uint8)}
 
     def get_obs(self, include_rgb: bool = True):
         import numpy as np
-        rgb = np.zeros((32, 32, 3), dtype=np.uint8) if include_rgb else None
+        rgb = {"cam1": np.zeros((32, 32, 3), dtype=np.uint8)} if include_rgb else None
         return {
             "rgb": rgb,
             "object_info": [{"name": "red_block", "pos": [0.5, 0.0, 0.1]}],
@@ -100,7 +100,7 @@ def _patch_pipeline(monkeypatch, llm_response="任务完成"):
 def _make_config(enabled: bool, root: str) -> AppConfig:
     return AppConfig(
         env=EnvConfig(use_gui=False, camera_resolution=(64, 48)),
-        vla=VLAConfig(backend="mock", max_steps=5),
+        vla=VLAConfig(backend="mock"),
         llm=LLMConfig(api_key="sk-dummy"),
         explore=ExploreConfig(),
         robot=RobotConfig(),

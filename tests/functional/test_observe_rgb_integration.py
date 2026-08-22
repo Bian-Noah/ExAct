@@ -17,7 +17,7 @@ def test_observe_calls_get_obs_with_rgb_true():
         "ee_pos": (0.5, 0.0, 0.4),
         "object_info": [],
         "state_desc": "...",
-        "rgb": np.zeros((480, 640, 3), dtype=np.uint8),
+        "rgb": {"cam1": np.zeros((480, 640, 3), dtype=np.uint8)},
     }
     tool = ObserveTool(env=env)
     tool._run()
@@ -32,7 +32,7 @@ def test_observe_executes_with_rgb_in_obs():
             {"id": 1, "name": "cube", "pos": [0.5, 0.0, 0.1], "quat": [0, 0, 0, 1]},
         ],
         "state_desc": "...",
-        "rgb": np.zeros((480, 640, 3), dtype=np.uint8),
+        "rgb": {"cam1": np.zeros((480, 640, 3), dtype=np.uint8)},
     }
     tool = ObserveTool(env=env)
     result = tool._run()

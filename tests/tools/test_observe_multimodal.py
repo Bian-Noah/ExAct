@@ -50,8 +50,12 @@ class FakeEnv:
         return self._obs
 
 
-def _default_obs(rgb: np.ndarray | None = None) -> dict:
-    """构造默认 obs dict（含 ee_pos + object_info + 可选 rgb）。"""
+def _default_obs(rgb: dict | None = None) -> dict:
+    """构造默认 obs dict（含 ee_pos + object_info + 可选 rgb dict）。
+
+    iter11-reset-multicam:rgb 改为 dict[str, np.ndarray](多相机),
+    单相机测试传 {"cam1": ndarray}。
+    """
     obs = {
         "object_info": [
             {"name": "red_block", "position": (0.1, 0.2, 0.05)},
@@ -95,7 +99,7 @@ def test_observe_tool_image_block_when_image_store_present(tmp_path: Path):
 
     upload_to_minimax 被 mock 掉（返回 mock 字符串），避免单测真打 MiniMax。
     """
-    rgb = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    rgb = {"cam1": np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)}
     env = FakeEnv(_default_obs(rgb=rgb))
     image_store = ImageStore(
         MemoryBackend(max_memory_items=5, spill_dir=tmp_path)
@@ -123,7 +127,8 @@ def test_observe_tool_image_block_when_image_store_present(tmp_path: Path):
     # upload_to_minimax 被调 1 次，参数是 save 返回的 img:// URL
     image_store.upload_to_minimax.assert_called_once()
     called_url = image_store.upload_to_minimax.call_args[0][0]
-    assert called_url.startswith("img://observations/")
+    # iter11-reset-multicam:category 含相机名,前缀改为 "img://observations_cam1/"
+    assert called_url.startswith("img://observations_cam1/")
 
     # 验证 image_store 仍可加载原图
     assert image_store.exists(called_url) is True
@@ -163,7 +168,7 @@ def test_observe_tool_degrades_without_rgb(tmp_path: Path):
 
 def test_observe_tool_degrades_without_image_store():
     """image_store=None + rgb 有值 → 行为与场景 1 一致（list 长度 1）。"""
-    rgb = np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+    rgb = {"cam1": np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)}
     env = FakeEnv(_default_obs(rgb=rgb))
     tool = ObserveTool(env=env)  # image_store=None
 
@@ -199,8 +204,8 @@ def test_observe_tool_recorder_emit_still_works_with_image_store(tmp_path: Path)
     set_recorder(recorder)
     exp_dir = recorder.start()
     try:
-        rgb1 = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
-        rgb2 = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        rgb1 = {"cam1": np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)}
+        rgb2 = {"cam1": np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)}
 
         image_store = ImageStore(
             MemoryBackend(max_memory_items=5, spill_dir=tmp_path / "img_spill")
@@ -242,11 +247,12 @@ def test_observe_tool_recorder_emit_still_works_with_image_store(tmp_path: Path)
         assert "[observe] saved observer/000.png" in log_content
         assert "[observe] saved observer/001.png" in log_content
 
-        # 验证 image_store.list("observations") 含 2 个 URL
-        urls = image_store.list("observations")
+        # 验证 image_store.list("observations_cam1") 含 2 个 URL
+        # iter11-reset-multicam:category 改为 "observations_cam1"
+        urls = image_store.list("observations_cam1")
         assert len(urls) == 2
         for url in urls:
-            assert url.startswith("img://observations/")
+            assert url.startswith("img://observations_cam1/")
     finally:
         recorder.finish(success=True, summary="x")
         set_recorder(None)
@@ -284,7 +290,7 @@ def test_observe_tool_mock_backend_records_save_params():
 
     upload_to_minimax 被 mock 掉，避免真打 MiniMax。
     """
-    rgb = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    rgb = {"cam1": np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)}
     env = FakeEnv(_default_obs(rgb=rgb))
 
     mock_backend = _MockBackend()
@@ -299,8 +305,8 @@ def test_observe_tool_mock_backend_records_save_params():
     assert len(mock_backend.calls) == 1
     saved_image, saved_category, saved_filename = mock_backend.calls[0]
 
-    # category == "observations"
-    assert saved_category == "observations"
+    # iter11-reset-multicam:category 含相机名,新格式 "observations_cam1"
+    assert saved_category == "observations_cam1"
 
     # filename 匹配 YYYYMMDD_HHMMSS_NNN.png
     assert re.match(r"^\d{8}_\d{6}_\d{3}\.png$", saved_filename), (
@@ -324,7 +330,7 @@ def test_observe_tool_target_filter_with_image_store(tmp_path: Path):
 
     upload_to_minimax 被 mock 掉，避免真打 MiniMax。
     """
-    rgb = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    rgb = {"cam1": np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)}
     env = FakeEnv(_default_obs(rgb=rgb))
     image_store = ImageStore(
         MemoryBackend(max_memory_items=5, spill_dir=tmp_path)
@@ -355,7 +361,7 @@ def test_observe_tool_target_filter_with_image_store(tmp_path: Path):
 
 def test_observe_tool_text_block_preserves_formatting():
     """text 块 text 字段去掉 list 包装后与 _format_text_lines 直接调用一致。"""
-    rgb = np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+    rgb = {"cam1": np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)}
     obs = _default_obs(rgb=rgb)
     env = FakeEnv(obs)
     tool = ObserveTool(env=env)  # 无 image_store → 不会追加 image 块

@@ -6,6 +6,16 @@ env:
   mode: direct                # "direct" | "gui"   是否开 GUI 窗口
   renderer: auto              # "auto" | "cpu" | "gpu"   渲染器选择（auto = 平台自动判断）
   camera_resolution: [640, 480]   # list，加载时转为 tuple[int, int]
+  # iter11-reset-multicam:多相机配置,默认 1 个 overhead 相机
+  cameras:
+    - name: observation.images.top
+      target: [0.5, 0.0, 0.5]
+      distance: 1.5
+      yaw: 50
+      pitch: -35
+      roll: 0
+      fov: 60
+      resolution: [640, 480]
 
 vla:
   backend: mock                   # "mock" | "lerobot"
@@ -13,7 +23,7 @@ vla:
                                   #   lerobot 例: "lerobot/act_aloha_sim_transfer_cube_human"
                                   #             "lerobot/smolvla_base"
                                   #             "lerobot/pi0_libero_finetuned"
-  max_steps: 50                   # 单个动作最多执行步数
+  # iter11-reset-multicam:max_steps 字段已删除(iter 10 后无消费方)
   mock:                           # 仅 backend: mock 时生效（mock 特化配置）
     variant: task                 # task | joint
                                   #   task:  默认 7 维 task 空间（MockVLA，用于 Panda）

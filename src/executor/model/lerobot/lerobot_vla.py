@@ -423,35 +423,59 @@ class LeRobotVLA(BaseVLA):
 
     def _build_raw_obs(
         self,
-        image: np.ndarray,
+        image: dict[str, np.ndarray],
         instruction: str,
         state: np.ndarray | None = None,
     ) -> dict:
-        """把 (image, instruction[, state]) 包装为 preprocessor 期望的原始 obs dict。
+        """把 (image_dict, instruction[, state]) 包装为 preprocessor 期望的原始 obs dict。
+
+        iter11-reset-multicam:image 参数类型从 np.ndarray 改为
+        dict[str, np.ndarray](key 为相机名)。每个 _resolved_image_keys
+        按 key 从 image dict 取独立图;env 配的相机数 < policy 期望时,
+        fallback 用 image dict 的首张图占位并 warn(避免 VLA 推理崩溃)。
 
         图像预处理（关键）：
-          输入  image : numpy uint8 (H, W, 3)
-          输出  tensor : torch float32 (1, 3, H, W)，值域 [0, 1]
+          输入  image[k] : numpy uint8 (H, W, 3)
+          输出  tensor  : torch float32 (1, 3, H, W)，值域 [0, 1]
 
         必须做这一步，原因是这个权重保存的 preprocessor.json 里漏装了
         "uint8 HWC → float32 BCHW / 255" 的转换步骤。直接喂 uint8 HWC 会
         让 normalizer 尝试把 float32 stats 转 uint8 → overflow；并且即使
         dtype 修好，stats 形状 (3,1,1) 与 HWC 布局广播会算错维度。
 
-        多相机 policy：同一张 image 复制到所有 VISUAL obs 键（占位用；
-        真实部署需 env 端传入各相机各自帧）。
-
         注意：这里只做"原始"观测的 dtype/layout 转换，batch、归一化、tokenize
         等由官方 preprocessor 管线完成，不在此手拼。
         """
         import torch  # 仅此处局部 import，避免模块级 torch 依赖被无谓触发
-        img_tensor = torch.from_numpy(image)                          # (H, W, 3) uint8
-        img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0)         # (1, 3, H, W) uint8
-        img_tensor = img_tensor.contiguous().float().div_(255.0)       # (1, 3, H, W) float32 [0,1]
+
+        # iter11-reset-multicam:按相机名取独立图,缺失 fallback 占位 + warn
+        if not image:
+            raise ValueError("image dict 为空,至少需 1 张相机图")
+
+        first_key = next(iter(image))
+        first_img = image[first_key]
+        if not isinstance(first_img, np.ndarray):
+            raise ValueError(
+                f"image['{first_key}'] 不是 np.ndarray,得到 {type(first_img).__name__}"
+            )
+
+        target_keys = self._resolved_image_keys or [self.image_key]
+        if len(target_keys) > len(image):
+            self._log.warning(
+                f"VLA 期望 {len(target_keys)} 路相机(env 实际配 {len(image)} 路),"
+                f"缺失相机将 fallback 用首张图({first_key})占位"
+            )
+
+        def _to_tensor(arr: np.ndarray) -> torch.Tensor:
+            t = torch.from_numpy(arr)                          # (H, W, 3) uint8
+            t = t.permute(2, 0, 1).unsqueeze(0)                # (1, 3, H, W) uint8
+            t = t.contiguous().float().div_(255.0)              # (1, 3, H, W) float32 [0,1]
+            return t
 
         obs: dict = {}
-        for key in self._resolved_image_keys or [self.image_key]:
-            obs[key] = img_tensor
+        for key in target_keys:
+            src = image[key] if key in image else first_img
+            obs[key] = _to_tensor(src)
         # SmolVLA 等 VLA 类 policy 的 TokenizerProcessorStep 通过 complementary_data["task"]
         # 读取任务说明；batch_to_transition 只抽顶层名为 "task" 的键，因此必须在顶层
         # 同时放一份。observation.language_instruction 保留供其他后端（如 OpenVLA）使用。

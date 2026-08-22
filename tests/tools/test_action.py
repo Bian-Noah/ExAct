@@ -35,19 +35,21 @@ class _FakeEnv(BaseEnv):
 
     def _make_obs(self):
         import numpy as np
+        # iter11-reset-multicam:rgb 改为 dict[str, ndarray](单相机 cam1)
         return {
-            "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+            "rgb": {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)},
             "object_info": [],
             "ee_pos": self._ee_pos,
             "state_desc": "",
         }
 
 
-def _make_env_and_executor(max_steps=2):
+def _make_env_and_executor():
     env = _FakeEnv()
     env.reset()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=max_steps)
+    # iter11-reset-multicam:Executor 不再接收 max_steps 参数
+    executor = Executor(vla)
     return env, executor
 
 

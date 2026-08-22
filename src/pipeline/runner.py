@@ -133,7 +133,8 @@ def run_pipeline(
         vla = create_vla(config.vla, config.llm)
 
         # 5. 组装 executor
-        executor = Executor(vla, max_steps=config.vla.max_steps)
+        # iter11-reset-multicam:Executor 构造删除 max_steps(iter 10 已废弃,iter 11 完全清理)
+        executor = Executor(vla)
 
         # 6. 组装 llm
         llm = create_llm(config.llm)

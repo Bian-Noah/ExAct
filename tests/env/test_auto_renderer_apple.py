@@ -40,7 +40,10 @@ def test_auto_renderer_does_not_crash_on_apple_silicon():
     env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="auto"))
     try:
         env.reset(task_spec={"objects": []})
-        rgb = env.render()
+        images = env.render()
+        # iter11-reset-multicam:render 返回 dict[str, ndarray]
+        assert isinstance(images, dict)
+        rgb = images["observation.images.top"]
         assert isinstance(rgb, np.ndarray)
         assert rgb.shape == (480, 640, 3)
     finally:

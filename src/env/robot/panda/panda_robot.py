@@ -25,6 +25,13 @@ class PandaRobot:
         self.ee_link_index = robot_config.panda.ee_link_index
         self.finger_joint_indices = tuple(robot_config.panda.finger_joint_indices)
 
+    def home_joint_positions(self) -> tuple[float, ...]:
+        """iter11-reset-multicam:Panda 7 关节 home pose。
+
+        典型 ready pose：上方抬起,夹爪水平,关节在可达空间中央。
+        """
+        return (0.0, -0.7854, 0.0, -2.3562, 0.0, 1.5708, 0.7854)
+
     @property
     def input_spec(self) -> ActionSpec:
         """Panda 消费 task 空间 7 维动作（Action7D 语义）。"""

@@ -23,7 +23,7 @@ def _make_env_mock(include_rgb: bool = True) -> MagicMock:
             {"id": 1, "name": "cube", "pos": [0.5, 0.0, 0.1], "quat": [0, 0, 0, 1]},
         ],
         "state_desc": "场景中1个物体，末端在(0.50,0.00,0.40)",
-        "rgb": np.zeros((480, 640, 3), dtype=np.uint8) if include_rgb else None,
+        "rgb": {"cam1": np.zeros((480, 640, 3), dtype=np.uint8)} if include_rgb else None,
     }
     return env
 

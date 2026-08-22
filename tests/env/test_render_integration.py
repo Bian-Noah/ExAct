@@ -16,12 +16,16 @@ from env.pybullet_env import PyBulletEnv
 
 @pytest.mark.slow
 def test_render_multiple_calls_no_crash():
-    """连续 render() 10 次不崩溃，返回 shape (480, 640, 3)。"""
+    """连续 render() 10 次不崩溃，返回 dict[name, ndarray]。"""
     env = PyBulletEnv(env_config=EnvConfig(mode="direct", renderer="cpu"))
     try:
         env.reset(task_spec={"objects": []})
         for _ in range(10):
-            rgb = env.render()
+            images = env.render()
+            # iter11-reset-multicam:render 返回 dict[str, ndarray]
+            assert isinstance(images, dict)
+            assert "observation.images.top" in images
+            rgb = images["observation.images.top"]
             assert isinstance(rgb, np.ndarray)
             assert rgb.shape == (480, 640, 3)
             assert rgb.dtype == np.uint8

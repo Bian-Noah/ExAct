@@ -39,14 +39,18 @@ class BaseVLA(abc.ABC):
     @abc.abstractmethod
     def predict(
         self,
-        image: np.ndarray,
+        image: dict[str, np.ndarray],
         instruction: str,
         state: np.ndarray | None = None,
     ) -> VLAOutput:
-        """输入图片 + 自然语言指令，输出带 spec 的动作。
+        """输入多相机图片 dict + 自然语言指令，输出带 spec 的动作。
+
+        iter11-reset-multicam: image 参数类型从 np.ndarray 改为
+        dict[str, np.ndarray],key 为相机名（CameraSpec.name）,
+        值为 RGB ndarray (H, W, 3) uint8。MockVLA / LLMVLA 可忽略。
 
         Args:
-            image: np.ndarray (H, W, 3) uint8，当前场景截图。
+            image: dict[str, np.ndarray],多相机 RGB 图。
             instruction: 自然语言指令字符串，如 "移动到红色方块上方"。
             state: 可选 np.ndarray，当前机器人关节角/本体感知状态。
                 None 时各后端按自身默认（ACT 默认零向量，Mock 忽略）。

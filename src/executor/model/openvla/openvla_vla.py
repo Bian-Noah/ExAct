@@ -141,20 +141,29 @@ class OpenVLA(BaseVLA):
             TypeError: image 非 np.ndarray。
             ValueError: image.dtype 非 uint8 或维度不是 3。
         """
-        if not isinstance(image, np.ndarray):
+        if not isinstance(image, dict):
             raise TypeError(
-                f"image 必须为 np.ndarray，得到 {type(image).__name__}"
+                f"image 必须为 dict[str, np.ndarray]，得到 {type(image).__name__}"
             )
-        if image.dtype != np.uint8:
-            raise ValueError(f"image.dtype 必须为 uint8，得到 {image.dtype}")
-        if image.ndim != 3 or image.shape[2] != 3:
+        # iter11-reset-multicam:OpenVLA 只消费单图,取 image dict 的首张图
+        if not image:
+            raise ValueError("image dict 为空,至少需 1 张相机图")
+        first_key = next(iter(image))
+        first_img = image[first_key]
+        if not isinstance(first_img, np.ndarray):
+            raise TypeError(
+                f"image['{first_key}'] 不是 np.ndarray，得到 {type(first_img).__name__}"
+            )
+        if first_img.dtype != np.uint8:
+            raise ValueError(f"image.dtype 必须为 uint8，得到 {first_img.dtype}")
+        if first_img.ndim != 3 or first_img.shape[2] != 3:
             raise ValueError(
-                f"image 形状必须为 (H, W, 3)，得到 {image.shape}"
+                f"image 形状必须为 (H, W, 3)，得到 {first_img.shape}"
             )
 
         self._ensure_loaded()
 
-        pil_image: Image.Image = Image.fromarray(image)
+        pil_image: Image.Image = Image.fromarray(first_img)
         prompt: str = DEFAULT_PROMPT_TEMPLATE.format(instruction=instruction)
 
         # processor 输入 → 移到 device + dtype

@@ -38,7 +38,8 @@ def test_vla_config_defaults():
     cfg = VLAConfig()
     assert cfg.backend == "mock"
     assert cfg.model_path is None
-    assert cfg.max_steps == 50
+    # iter11-reset-multicam:max_steps 已移除
+    assert not hasattr(cfg, "max_steps")
 
 
 def test_lerobot_config_defaults():
@@ -138,7 +139,8 @@ def test_from_dict_env_camera_list_to_tuple():
 def test_from_dict_vla_model_path_null():
     cfg = _from_dict({"model_path": None, "max_steps": 100}, VLAConfig)
     assert cfg.model_path is None
-    assert cfg.max_steps == 100
+    # iter11-reset-multicam:max_steps 已移除,传入被 warn 忽略
+    assert not hasattr(cfg, "max_steps")
     assert cfg.backend == "mock"
 
 
@@ -172,7 +174,7 @@ def test_from_dict_app_config_nested():
     assert isinstance(app.vla, VLAConfig)
     assert app.vla.backend == "openvla"
     assert app.vla.model_path == "/tmp/model"
-    assert app.vla.max_steps == 30
+    assert not hasattr(app.vla, "max_steps")
     assert isinstance(app.llm, LLMConfig)
     assert app.llm.api_key == "key"
     assert isinstance(app.explore, ExploreConfig)
@@ -216,8 +218,9 @@ def test_from_dict_not_mapping():
 
 
 def test_check_type_bool_not_int():
-    with pytest.raises(TypeError, match="期望 int"):
-        _from_dict({"max_steps": True}, VLAConfig)
+    # iter11-reset-multicam:max_steps 字段已移除,改用 use_gui(bool 字段)验证类型拒绝
+    with pytest.raises(TypeError, match="期望 bool"):
+        _from_dict({"use_gui": "yes"}, EnvConfig)
 
 
 def test_check_type_int_not_bool():
@@ -317,7 +320,8 @@ def test_load_config_empty_yaml_uses_defaults():
         assert cfg.env.camera_resolution == (640, 480)
         assert cfg.vla.backend == "mock"
         assert cfg.vla.model_path is None
-        assert cfg.vla.max_steps == 50
+        # iter11-reset-multicam:max_steps 已移除
+        assert not hasattr(cfg.vla, "max_steps")
         assert cfg.llm.api_key == ""
         assert cfg.llm.model == "MiniMax-M3"
         assert cfg.explore.enabled is False

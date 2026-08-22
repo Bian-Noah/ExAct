@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pybullet as p
 
-from config.loader import EnvConfig
+from config.loader import CameraSpec, EnvConfig
 from env.pybullet_env import PyBulletEnv
 
 
@@ -64,8 +64,8 @@ def test_render_uses_tiny_renderer_param(caplog):
     call_kwargs = mock_p.getCameraImage.call_args.kwargs
     assert call_kwargs["renderer"] == p.ER_TINY_RENDERER
     assert any("CPU/TINY_RENDERER" in rec.message for rec in caplog.records)
-    assert rgb.shape == (height, width, 3)
-    assert rgb.dtype == np.uint8
+    assert rgb['observation.images.top'].shape == (height, width, 3)
+    assert rgb['observation.images.top'].dtype == np.uint8
 
 
 def test_render_uses_opengl_renderer_param(caplog):
@@ -87,7 +87,7 @@ def test_render_uses_opengl_renderer_param(caplog):
     call_kwargs = mock_p.getCameraImage.call_args.kwargs
     assert call_kwargs["renderer"] == p.ER_BULLET_HARDWARE_OPENGL
     assert any("GPU/OPENGL" in rec.message for rec in caplog.records)
-    assert rgb.shape == (height, width, 3)
+    assert rgb['observation.images.top'].shape == (height, width, 3)
 
 
 # ============================================================
@@ -96,8 +96,18 @@ def test_render_uses_opengl_renderer_param(caplog):
 
 def test_render_rgba_to_rgb_reshape():
     """RGBA (H, W, 4) reshape 为 (H, W, 3)。"""
+    # iter11-reset-multicam:render 用 CameraSpec.resolution 而非 camera_resolution
     env = PyBulletEnv(
-        env_config=EnvConfig(mode="direct", renderer="cpu", camera_resolution=(320, 240))
+        env_config=EnvConfig(
+            mode="direct", renderer="cpu",
+            cameras=(
+                CameraSpec(
+                    name="observation.images.top",
+                    target=(0.5, 0.0, 0.5), distance=1.5,
+                    yaw=50, pitch=-35, roll=0, resolution=(320, 240),
+                ),
+            ),
+        )
     )
     mock_p = _make_mock_p()
     width, height = 320, 240
@@ -111,10 +121,10 @@ def test_render_rgba_to_rgb_reshape():
         env._client_id = 999
         rgb = env.render()
 
-    assert rgb.shape == (height, width, 3)
-    assert rgb[0, 0, 0] == 100
-    assert rgb[0, 0, 1] == 150
-    assert rgb[0, 0, 2] == 200
+    assert rgb['observation.images.top'].shape == (height, width, 3)
+    assert rgb['observation.images.top'][0, 0, 0] == 100
+    assert rgb['observation.images.top'][0, 0, 1] == 150
+    assert rgb['observation.images.top'][0, 0, 2] == 200
 
 
 # ============================================================

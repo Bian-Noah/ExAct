@@ -15,11 +15,18 @@ Iteration 10 重大变更：
     5) 循环结束后调 `check_done(...)` 做**事后报告**（不控制循环）
   - 删除硬编码 `max_steps` 字段对循环的控制（构造时仍兼容，DeprecationWarning）
   - VLA OOD 行为的完整轨迹能跑到 LLM 眼前，不再被中途截断
+
+Iteration 11 重大变更（iter11-reset-multicam）：
+  - 彻底删除 `Executor(max_steps=...)` 参数和 DeprecationWarning（plan 决策 D9）
+  - `Executor.run_action` 新增 `operation: Literal["vla", "reset"]` 参数：
+    - `"vla"`（默认）：走 VLA 推理 + env.step chunk 循环（iter 10 行为）
+    - `"reset"`：直接调 `env.reset_arm_to_home()`，不走 VLA
+  - image 参数类型：env → VLA 全链路改为 dict[str, np.ndarray]
 """
 
 import inspect
-import warnings
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -54,29 +61,20 @@ class Executor:
 
     聚合一个 BaseVLA 实例，按 chunk 契约执行：VLA 的 predict 返回 N 步轨迹，
     executor 循环 N 次 `env.step`，循环中**不再调** `check_done`。
+
+    iter11-reset-multicam:`run_action` 新增 `operation` 参数,`"reset"` 走
+    env.reset_arm_to_home() 不走 VLA,`"vla"` 走原 chunk 路径。
     """
 
-    def __init__(self, vla: BaseVLA, max_steps: int = 50):
+    def __init__(self, vla: BaseVLA):
         """初始化 Executor。
 
+        iter11-reset-multicam:删除 max_steps 参数(iter 10 已废弃,iter 11 完全移除)。
+
         Args:
-            vla: BaseVLA 实例（MockVLA / OpenVLA 等）。
-            max_steps: **已废弃**（Iteration 10）。构造时打 DeprecationWarning。
-                字段仍存入 self.max_steps 但**不再用于循环控制**。
-                循环边界 = VLA 输出的 N，由 `vla.predict` 自决。
-                计划在 Iteration 11 完全移除该参数。
+            vla: BaseVLA 实例（MockVLA / LeRobotVLA / OpenVLA 等）。
         """
-        if max_steps != 50:
-            # 默认 50 是基线值；如果调用方显式传了非默认 max_steps 则报警告
-            warnings.warn(
-                "Executor(max_steps=...) 已废弃（Iteration 10 chunk 契约）。"
-                "循环边界 = len(VLA 输出的 chunk)，由 vla.predict 自决。"
-                "Iteration 11 将删除该参数。",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         self.vla = vla
-        self.max_steps = max_steps  # 保留字段以兼容旧测试 / 检查（但不再用于循环）
         self.logger = setup_logging(__name__)
 
     def run_action(
@@ -86,10 +84,14 @@ class Executor:
         done_criteria: str,
         target_pos: tuple | None = None,
         adapter=None,
+        operation: Literal["vla", "reset"] = "vla",
     ) -> ExecResult:
         """按 VLA 输出的整 chunk 执行动作（Iteration 10 chunk 契约）。
 
-        流程：
+        iter11-reset-multicam:operation 参数透传,`"reset"` 走 env 复位路径,
+        `"vla"` 走原 VLA 推理路径。
+
+        流程（vla 路径）：
           1) `vla.predict(image, instruction, state?)` 一次拿整 chunk VLAOutput
           2) 解包 `VLAOutput.values` → ndarray shape `(N, action_dim)`
           3) `adapter(values, env)` 一次拿转换后 actions shape `(N, env_dim)`
@@ -97,19 +99,26 @@ class Executor:
           5) 循环结束后 `check_done(...)` 做**事后报告**
           6) 返回 `ExecResult(success, steps=len(actions), ...)`
 
+        流程（reset 路径）：
+          1) `env.reset_arm_to_home()` 瞬时复位关节
+          2) `env.get_obs()` 拿新 obs
+          3) 返回 `ExecResult(success=None, steps=0, ...)`，**不走 VLA**
+
         VLA 通过 `env.get_obs()["rgb"]` 获取图像——VLA 直接接触环境，
         不依赖 LLM 传入图片 URL。VLA 是否使用 image 参数由各后端自行决定
         （MockVLA 故意忽略，LLMVLA 用语义信息，SmallVLA/OpenVLA 必须使用）。
+        iter11 起 image 是 dict[str, np.ndarray](多相机)。
 
         Args:
             env: BaseEnv 实例（PyBulletEnv / FakeEnv 等）。
-            instruction: 自然语言指令字符串。
+            instruction: 自然语言指令字符串(reset 路径可空)。
             done_criteria: 完成标准字符串（如 "reached" / "grasped"）。
             target_pos: 目标位置 (x, y, z)。reached 规则下用于判断 ee_pos
                 是否到达目标位置；未提供时 check_done 返回 (False, ...)，
                 由调用方（ActionTool / LLM）通过 final_obs 自行判断。
             adapter: 转换函数 `adapter(vla_output, env) -> env 原生动作`；
                 shape `(N, env_dim)`，**只调用一次**。None 时直通。
+            operation: `"vla"`（默认，走 VLA）或 `"reset"`（走 env.reset_arm_to_home）。
 
         Returns:
             ExecResult dataclass。
@@ -117,6 +126,18 @@ class Executor:
         Raises:
             env.step 抛出的异常透传。
         """
+        # ★ reset 路径:直接调 env 复位,不走 VLA
+        if operation == "reset":
+            env.reset_arm_to_home()
+            obs_after = env.get_obs(include_rgb=False)
+            return ExecResult(
+                success=None,
+                steps=0,
+                final_obs=obs_after,
+                message="机械臂已复位到 home（0 个 VLA 步，不走 VLA 推理）",
+            )
+
+        # ★ vla 路径:iter 10 chunk 契约
         # 缓存 VLA.predict 是否接受 state 参数（兼容老 VLA 子类）
         _predict_accepts_state = getattr(self, "_predict_accepts_state", None)
         if _predict_accepts_state is None:
@@ -137,6 +158,8 @@ class Executor:
         except (NotImplementedError, AttributeError):
             state_vec = None
 
+        # iter11-reset-multicam:env.get_obs() 返回的 obs["rgb"] 已是 dict
+        # vla_input["image"] 也是 dict,直接传给 vla.predict
         if _predict_accepts_state:
             vla_output = self.vla.predict(
                 vla_input["image"], instruction, state=state_vec
@@ -153,21 +176,23 @@ class Executor:
         # ★ 3. adapter 一次转换整 chunk → shape (N, env_dim)
         actions = adapter(raw, env) if adapter is not None else raw
 
-        # ★ Iteration 6：链路验证 print（仅第一步）
-        image = vla_input["image"]
-        rgb = obs_before.get("rgb")
-        if image is not None:
+        # ★ Iteration 6：链路验证 print（多相机取首张）
+        image_dict = vla_input["image"]
+        rgb_dict = obs_before.get("rgb")
+        if image_dict is not None:
+            first_key = next(iter(image_dict))
+            first_image = image_dict[first_key]
             print(
-                f"[executor] VLA.predict 收到 image: "
-                f"shape={image.shape}, dtype={image.dtype}"
+                f"[executor] VLA.predict 收到 image[{first_key}]: "
+                f"shape={first_image.shape}, dtype={first_image.dtype}"
             )
-            if rgb is not None:
-                is_match = bool(np.array_equal(image, rgb))
-                print(f"[executor] image 与 obs rgb array_equal: {is_match}")
+            if rgb_dict is not None and first_key in rgb_dict:
+                is_match = bool(np.array_equal(first_image, rgb_dict[first_key]))
+                print(f"[executor] image[{first_key}] 与 obs rgb array_equal: {is_match}")
                 if not is_match:
-                    self.logger.warning("⚠️ VLA image 与 obs rgb 不一致")
+                    self.logger.warning(f"⚠️ VLA image[{first_key}] 与 obs rgb 不一致")
             else:
-                print("[executor] ⚠️ obs_before['rgb'] 为 None")
+                print("[executor] ⚠️ obs_before['rgb'] 为 None 或不含该相机键")
         else:
             print("[executor] ⚠️ vla_input['image'] 为 None")
 

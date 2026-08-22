@@ -6,13 +6,16 @@ iter9-verify-explore-design：在 _run 入口接入 validate_instruction，
 拦截不合规指令并返回含失败原因的拒绝消息（不执行动作）。
 
 iter9-extend（English-only）：指令必须全英文，描述与示例同步改为英文。
+
+iter11-reset-multicam：ActionInput 加 operation: Literal["vla", "reset"] = "vla" 字段。
+operation="reset" 时走 env.reset_arm_to_home() 路径不走 VLA、不走 validate_instruction。
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Optional, Type
+from typing import Any, Literal, Optional, Type
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -61,10 +64,23 @@ def parse_target_pos(instruction: str) -> Optional[tuple[float, float, float]]:
 
 
 class ActionInput(BaseModel):
-    """ActionTool 输入参数。"""
+    """ActionTool 输入参数。
+
+    iter11-reset-multicam:加 operation 字段。
+      - "vla"(默认):执行 VLA 推理,instruction 必填且需符合 smolVLA 规范
+      - "reset":把机械臂关节瞬时复位到 home,不走 VLA,instruction 可省略
+    """
 
     instruction: str = Field(
-        description="English action instruction, e.g. 'pick red cube' or 'move to (0.5, 0, 0.3)'"
+        default="",
+        description="English action instruction, e.g. 'pick red cube' or 'move to (0.5, 0, 0.3)'. "
+        "Required for operation='vla', can be empty for operation='reset'.",
+    )
+    operation: Literal["vla", "reset"] = Field(
+        default="vla",
+        description="Operation type: 'vla' (default, run VLA inference) or "
+        "'reset' (instantly reset arm joints to home, bypass VLA). "
+        "Use 'reset' when VLA is OOD and joints are saturated.",
     )
 
 
@@ -73,16 +89,25 @@ class ActionTool(BaseTool):
 
     内部调用 Executor.run_action，返回 ExecResult.message。
     会尝试从 instruction 中解析目标坐标传给 executor。
+
+    iter11-reset-multicam:支持 operation="reset" 触发 env.reset_arm_to_home(),
+    绕过 VLA 推理,适用于 VLA OOD 后把关节从极限位姿拉回 home。
     """
 
     name: str = "action"
     description: str = (
-        "Execute an English natural language action instruction on the scene, "
-        "e.g. 'pick red cube' or 'move to (0.5, 0, 0.3)'."
+        "Execute an action on the scene. Two operation modes:\n"
+        "  - operation='vla' (default): run VLA inference with the given instruction.\n"
+        "    Instruction must be a single verb-led English sentence (≤30 chars).\n"
+        "  - operation='reset': instantly reset arm joints to home pose (bypass VLA).\n"
+        "    Use this when VLA is OOD and joints are saturated to a limit pose.\n"
+        "Examples:\n"
+        "  action(operation='vla', instruction='pick red cube')\n"
+        "  action(operation='reset')"
     )
     args_schema: Type[BaseModel] = ActionInput
     env: Any = None
-    executor: Any = None
+    executor: Any = None  # 注入：get_adapter(...) 返回的转换函数；None 时 _ensure_adapter 兜底
     adapter: Any = None  # 注入：get_adapter(...) 返回的转换函数；None 时 _ensure_adapter 兜底
 
     def _ensure_adapter(self, vla, env) -> Any:
@@ -102,17 +127,28 @@ class ActionTool(BaseTool):
         )
         return self.adapter
 
-    def _run(self, instruction: str) -> str:
+    def _run(self, instruction: str = "", operation: str = "vla") -> str:
         """执行动作指令。
 
+        iter11-reset-multicam:operation="reset" 时短路到 env 复位路径,
+        不走 validate_instruction、不走 vla.predict。
+
         Args:
-            instruction: 自然语言动作指令字符串。
+            instruction: 自然语言动作指令字符串(reset 路径可空)。
+            operation: "vla"(默认)走 VLA 推理,"reset" 走 env.reset_arm_to_home()。
 
         Returns:
-            ExecResult.message 字符串（成功/超时/失败描述），或不合规指令的拒绝消息。
+            ExecResult.message 字符串(vla 路径),或
+            "机械臂已复位到 home..." 字符串(reset 路径)。
         """
         _log = logging.getLogger("action")
-        _log.info(f"action 调用开始 instruction={instruction}")
+        _log.info(f"action 调用开始 operation={operation} instruction={instruction}")
+
+        # iter11-reset-multicam:reset 路径不走 validate_instruction,不消耗 VLA 规范
+        if operation == "reset":
+            return self._execute_reset()
+
+        # vla 路径:校验 instruction 非空 + smolVLA 规范
         if not instruction or not instruction.strip():
             return "错误：动作指令不能为空"
 
@@ -133,6 +169,7 @@ class ActionTool(BaseTool):
             done_criteria="reached",
             target_pos=target_pos,
             adapter=adapter,
+            operation="vla",
         )
         _log.info(f"action 调用完成 success={result.success}")
 
@@ -147,3 +184,19 @@ class ActionTool(BaseTool):
                 f"LLM 观察当前画面判断任务是否完成。"
             )
         return result.message
+
+    def _execute_reset(self) -> str:
+        """iter11-reset-multicam:走 env.reset_arm_to_home() 路径,不走 VLA。
+
+        Returns:
+            "机械臂已复位到 home..." 字符串,含末端位置反馈。
+        """
+        _log = logging.getLogger("action")
+        _log.info("action reset 路径：调用 env.reset_arm_to_home()")
+        self.env.reset_arm_to_home()
+        obs_after = self.env.get_obs(include_rgb=False)
+        ee_pos = obs_after.get("ee_pos")
+        if ee_pos is not None:
+            ee_str = f"({ee_pos[0]:.3f}, {ee_pos[1]:.3f}, {ee_pos[2]:.3f})"
+            return f"机械臂已复位到 home,末端位置:{ee_str}"
+        return "机械臂已复位到 home"

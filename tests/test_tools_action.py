@@ -62,18 +62,18 @@ class FakeEnvWithEePosControl(BaseEnv):
     def _make_obs(self):
         import numpy as np
         return {
-            "rgb": np.zeros((10, 10, 3), dtype=np.uint8),
+            "rgb": {"cam1": np.zeros((10, 10, 3), dtype=np.uint8)},
             "object_info": [{"name": "cube", "pos": [0.5, 0, 0.1]}],
             "ee_pos": self._ee_pos,
             "state_desc": f"step={self._step_count}",
         }
 
 
-def _make_setup(max_steps=5, satisfy_at_step=3):
+def _make_setup(satisfy_at_step=3):
     env = FakeEnvWithEePosControl(satisfy_at_step=satisfy_at_step)
     env.reset()
     vla = MockVLA(seed=0)
-    executor = Executor(vla, max_steps=max_steps)
+    executor = Executor(vla)
     return env, executor
 
 
@@ -101,7 +101,7 @@ def test_action_tool_whitespace_instruction():
 
 def test_action_tool_normal_instruction():
     """正常指令返回 ExecResult.message 字符串。"""
-    env, executor = _make_setup(max_steps=5, satisfy_at_step=3)
+    env, executor = _make_setup(satisfy_at_step=3)
     tool = ActionTool(env=env, executor=executor)
     result = tool._run(instruction="move forward")
 
@@ -111,7 +111,7 @@ def test_action_tool_normal_instruction():
 
 def test_action_tool_calls_executor_once():
     """正常指令调用 executor.run_action 恰好 1 次。"""
-    env, executor = _make_setup(max_steps=5, satisfy_at_step=10)
+    env, executor = _make_setup(satisfy_at_step=10)
     original = executor.run_action
     captured = {}
 
@@ -133,7 +133,7 @@ def test_action_tool_calls_executor_once():
 
 def test_action_tool_with_coords_extracts_target_pos():
     """含坐标指令应解析 target_pos 传给 executor。"""
-    env, executor = _make_setup(max_steps=5, satisfy_at_step=10)
+    env, executor = _make_setup(satisfy_at_step=10)
     original = executor.run_action
     captured = {}
 
@@ -257,7 +257,7 @@ def test_action_tool_rejects_over_30_chars():
 
 def test_action_tool_accepts_valid_verb():
     """合规英文指令仍正常执行。"""
-    env, executor = _make_setup(max_steps=5, satisfy_at_step=3)
+    env, executor = _make_setup(satisfy_at_step=3)
     captured = {}
 
     original = executor.run_action
@@ -306,7 +306,7 @@ def test_action_tool_no_parse_target_pos_on_reject():
 
 def test_action_tool_run_returns_ee_pos_in_message():
     """Iteration 10：ActionTool 返回 message 含 final_obs["ee_pos"] + "LLM 观察" 字样。"""
-    env, executor = _make_setup(max_steps=5, satisfy_at_step=10)
+    env, executor = _make_setup(satisfy_at_step=10)
     tool = ActionTool(env=env, executor=executor)
     result = tool._run(instruction="move forward")
 
@@ -321,7 +321,7 @@ def test_action_tool_run_returns_ee_pos_in_message():
 
 def test_action_tool_run_message_includes_step_count():
     """Iteration 10：message 含 "执行 VLA 规划的 N 步"（MockVLA chunk=1）。"""
-    env, executor = _make_setup(max_steps=5, satisfy_at_step=10)
+    env, executor = _make_setup(satisfy_at_step=10)
     tool = ActionTool(env=env, executor=executor)
     result = tool._run(instruction="move forward")
 

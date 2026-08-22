@@ -97,11 +97,15 @@ class BaseEnv(ABC):
         """
 
     @abstractmethod
-    def render(self) -> np.ndarray:
-        """返回当前相机 RGB 图像。
+    def render(self) -> dict[str, np.ndarray]:
+        """返回当前各相机 RGB 图像 dict（iter11-reset-multicam）。
+
+        iter11-reset-multicam：签名从 `np.ndarray` 改为
+        `dict[str, np.ndarray]`,name 为 CameraSpec.name,值为
+        RGB ndarray (H, W, 3) uint8。单相机配置时返回 dict 长度 1。
 
         Returns:
-            shape=(H, W, 3), dtype=uint8, 范围 [0, 255]。
+            dict[name, np.ndarray]:每个相机一张 RGB 图。
         """
 
     @abstractmethod
@@ -156,3 +160,18 @@ class BaseEnv(ABC):
             NotImplementedError: 该 env 未实现 joint state 暴露。
         """
         raise NotImplementedError("该 env 未实现 get_joint_state")
+
+    def reset_arm_to_home(self) -> None:
+        """iter11-reset-multicam:把机械臂关节瞬时复位到 home pose。
+
+        默认 NotImplementedError,env 子类按需 override。
+
+        约束：
+          - 只动机械臂关节,不动 env/cube/物体
+          - 瞬时复位,不调 p.step()(不走物理仿真)
+          - 关节速度被设为 0(避免小幅抖动)
+
+        Raises:
+            NotImplementedError: 该 env 未实现 reset_arm_to_home。
+        """
+        raise NotImplementedError("该 env 未实现 reset_arm_to_home")

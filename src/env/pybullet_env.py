@@ -241,17 +241,21 @@ class PyBulletEnv(BaseEnv):
         self.robot.step_action(action, self._robot_id, self._client_id)
         return self.get_obs(), 0.0, False, {}
 
-    def render(self) -> np.ndarray:
-        """返回当前相机 RGB 图像。
+    def render(self) -> dict[str, np.ndarray]:
+        """返回当前各相机 RGB 图像 dict（iter11-reset-multicam）。
 
-        iter2-renderer-env-mode：渲染器由 self._renderer 决定（auto/cpu/gpu），
-        日志中动态标注实际使用的渲染器（CPU/TINY_RENDERER 或 GPU/OPENGL）。
+        按 self.env_config.cameras 遍历,每个 camera 调一次
+        p.getCameraImage,返回 {cam_name: rgb_ndarray}。
+        单相机配置(默认 overhead)时返回 dict 长度 1,行为与 iter 10 兼容。
 
-        iter6-log-throttle：日志节流——仅首次完整打"开始/完成"+渲染器，
-        后续每 10 次打一条简短摘要，避免 executor 循环内刷屏。
+        iter2-renderer-env-mode:渲染器由 self._renderer 决定(auto/cpu/gpu),
+        日志中动态标注实际使用的渲染器(CPU/TINY_RENDERER 或 GPU/OPENGL)。
+
+        iter6-log-throttle:日志节流——仅首次完整打"开始/完成"+渲染器,
+        后续每 10 次打一条简短摘要,避免 executor 循环内刷屏。
 
         Returns:
-            shape=(H, W, 3), dtype=uint8，范围 [0, 255]。
+            dict[str, np.ndarray]:每个相机一张 RGB 图,shape=(H, W, 3),dtype=uint8。
         """
         self._render_call_count += 1
         is_logged = (self._render_call_count == 1) or (self._render_call_count % 10 == 0)
@@ -265,7 +269,8 @@ class PyBulletEnv(BaseEnv):
         if is_logged:
             if self._render_call_count == 1:
                 logger.info(
-                    f"render() 开始 — 渲染器={self._renderer} ({renderer_label})"
+                    f"render() 开始 — 渲染器={self._renderer} ({renderer_label}), "
+                    f"相机数={len(self.env_config.cameras)}"
                 )
             else:
                 logger.info(
@@ -274,42 +279,42 @@ class PyBulletEnv(BaseEnv):
                 )
 
         self._ensure_connected()
-        width, height = self.camera_resolution
 
-        # 相机参数
-        view_matrix = p.computeViewMatrixFromYawPitchRoll(
-            cameraTargetPosition=[0.5, 0, 0.5],
-            distance=1.5,
-            yaw=50,
-            pitch=-35,
-            roll=0,
-            upAxisIndex=2,
-        )
-        proj_matrix = p.computeProjectionMatrixFOV(
-            fov=60,
-            aspect=width / height,
-            nearVal=0.1,
-            farVal=100.0,
-        )
-
-        # 获取相机图像（iter2-renderer-env-mode：传入 renderer 参数）
-        (_, _, px, _, _) = p.getCameraImage(
-            width,
-            height,
-            viewMatrix=view_matrix,
-            projectionMatrix=proj_matrix,
-            physicsClientId=self._client_id,
-            renderer=self._renderer,
-        )
-
-        # RGBA → RGB
-        rgb_array = np.array(px, dtype=np.uint8)
-        rgb_array = rgb_array.reshape((height, width, 4))[:, :, :3]
+        out: dict[str, np.ndarray] = {}
+        for cam in self.env_config.cameras:
+            width, height = cam.resolution
+            view_matrix = p.computeViewMatrixFromYawPitchRoll(
+                cameraTargetPosition=list(cam.target),
+                distance=cam.distance,
+                yaw=cam.yaw,
+                pitch=cam.pitch,
+                roll=cam.roll,
+                upAxisIndex=2,
+            )
+            proj_matrix = p.computeProjectionMatrixFOV(
+                fov=cam.fov,
+                aspect=width / height,
+                nearVal=0.1,
+                farVal=100.0,
+            )
+            # 获取相机图像(iter2-renderer-env-mode:传入 renderer 参数)
+            (_, _, px, _, _) = p.getCameraImage(
+                width,
+                height,
+                viewMatrix=view_matrix,
+                projectionMatrix=proj_matrix,
+                physicsClientId=self._client_id,
+                renderer=self._renderer,
+            )
+            # RGBA → RGB
+            rgb_array = np.array(px, dtype=np.uint8)
+            rgb_array = rgb_array.reshape((height, width, 4))[:, :, :3]
+            out[cam.name] = rgb_array
 
         if is_logged:
             logger.info("render() 完成")
 
-        return rgb_array
+        return out
 
     def get_obs(self, include_rgb: bool = True) -> dict:
         """返回当前观测，不推进物理。
@@ -391,3 +396,21 @@ class PyBulletEnv(BaseEnv):
         """
         self._ensure_connected()
         return self.robot.get_joint_state(self._robot_id, self._client_id)
+
+    def reset_arm_to_home(self) -> None:
+        """iter11-reset-multicam:把机械臂关节瞬时复位到 home pose。
+
+        通过 p.resetJointState 逐关节设置目标位置 + 速度为 0,
+        不调 p.step()(不走物理仿真)。
+        不动 base、不动 cube、不重置 env——只把关节从极限位姿拉回 home。
+        """
+        self._ensure_connected()
+        home = self.robot.home_joint_positions()
+        for joint_idx, pos in zip(self.robot.arm_joint_indices, home):
+            p.resetJointState(
+                self._robot_id,
+                joint_idx,
+                targetValue=pos,
+                targetVelocity=0.0,
+                physicsClientId=self._client_id,
+            )

@@ -52,7 +52,7 @@ def _make_config(
 ) -> AppConfig:
     return AppConfig(
         env=EnvConfig(use_gui=False, camera_resolution=(64, 48)),
-        vla=VLAConfig(backend=vla_backend, max_steps=5),
+        vla=VLAConfig(backend=vla_backend, ),
         llm=LLMConfig(api_key="sk-dummy"),
         explore=ExploreConfig(),
         robot=RobotConfig(),
