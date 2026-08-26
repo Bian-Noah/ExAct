@@ -1,0 +1,58 @@
+{
+  "model": "ahmedsohail2003/smolvla-so101-pickplace-v2",
+  "dataset": "ahmedsohail2003/so101-sim-pickplace-v2",
+  "device": "cuda:0",
+  "quantization": "8bit",
+  "samples": 10,
+  "checks": {
+    "pass": 0,
+    "fail": 10,
+    "errors": [
+      {
+        "index": 314,
+        "error": "RuntimeError: result type Float can't be cast to the desired output type Char"
+      },
+      {
+        "index": 779,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      },
+      {
+        "index": 1430,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      },
+      {
+        "index": 3333,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      },
+      {
+        "index": 5129,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      },
+      {
+        "index": 5853,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      },
+      {
+        "index": 9718,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      },
+      {
+        "index": 12109,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      },
+      {
+        "index": 15468,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      },
+      {
+        "index": 16171,
+        "error": "NotImplementedError: \"baddbmm_cuda\" not implemented for 'Char'"
+      }
+    ]
+  },
+  "avg_mse": null,
+  "avg_mae": null,
+  "avg_time_s": null,
+  "results": [],
+  "generated_at": "2026-08-26T19:28:03"
+}

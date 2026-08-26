@@ -45,6 +45,7 @@ pydantic                 # 工具入参 schema 校验
 # [smolvla] extra 同时带 SmolVLA/pi0 需要的 transformers、accelerate、num2words，
 # 基础 ACT / Diffusion / VQ-BeT 也涵盖在内。纯 ACT 场景可改回 lerobot 减负。
 lerobot[smolvla]
+lerobot[dataset]          # 脚本需要（数据集读写/可视化，与 [smolvla] extra 有重叠但显式声明便于排查）
 
 # --- VLA 量化（4bit/8bit，CUDA 下可用；代码要求 >=0.43）---
 bitsandbytes
