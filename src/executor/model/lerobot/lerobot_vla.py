@@ -26,6 +26,7 @@ obs 预处理 / 动作后处理统一走 lerobot 官方 PolicyProcessorPipeline�
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import Any, Optional
 
@@ -241,6 +242,66 @@ class LeRobotVLA(BaseVLA):
             f"处理器管线已创建：preprocessor={type(self._preprocessor).__name__}, "
             f"postprocessor={type(self._postprocessor).__name__}"
         )
+
+    # =============================================================================
+    # 单位换算策略（重要：跨模型兼容性）
+    # =============================================================================
+    #
+    # **不同模型可能输出不同单位的关节角，喂 env 前必须先归一化到 PyBullet 弧度。**
+    #
+    # lerobot 默认训练约定（ACT / Diffusion / SmolVLA 官方版）：
+    #   - 关节：度（range ~ ±180°）
+    #   - gripper：0-100（0=close, 100=open）
+    #
+    # 部分社区 fine-tune 直接用弧度训练，gripper 也已是 rad：
+    #   - 关节：弧度（range ~ ±π/2）
+    #   - gripper：弧度
+    # 例：ahmedsohail2003/smolvla-so101-pickplace-v2
+    #   stats: action.max ≈ 2.47, action.min ≈ -2.03 → 明显是弧度
+    # 反例：models/LeRobot-SO101-SmolVLA-universal-all_bs128_s20000/pretrained_model
+    #   stats: action.max ≈ 114.77, action.min ≈ -119.16 → 明显是度
+    #
+    # **错误的双重转换 = 缩小 57 倍**（÷ π/180）：
+    #   模型说"关节 -0.18 rad"，脚本把它当"度"再 deg2rad 一次
+    #   → -0.18 * π/180 ≈ -0.003 rad → POSITION_CONTROL setpoint 几乎贴当前位置
+    #   → 关节不动，ee 仅噪声量级位移
+    #
+    # 自动判别方法：postprocessor 反归一化后的 action 范围，
+    #   max(|min|, |max|) > π 视为"度"，否则"弧度"。
+    # 见下方 _action_in_degrees() 实现；判别失败默认按"弧度"处理（更安全：
+    # 弧度直接送 env 至少关节角数量级对；度被当弧度则超限被夹坏）。
+    # =============================================================================
+
+    def _action_in_degrees(self) -> bool:
+        """检测 postprocessor 反归一化后 action 的单位是"度"还是"弧度"。
+
+        lerobot SO101 默认训练约定 action 单位是"度 + gripper 0-100",
+        但某些 fine-tune(如 ahmedsohail2003/smolvla-so101-pickplace-v2)
+        直接用"弧度"训练,通过 stats 里 action.max 量级判断:
+        max(|min|, |max|) > π 视为"度",否则视为"弧度"。
+
+        Returns:
+            True 表示模型输出是度,需做 deg→rad + gripper 0-100→rad 转换;
+            False 表示模型已是弧度,跳过转换直接给 env。
+        """
+        if self._postprocessor is None:
+            return False
+        try:
+            for step in getattr(self._postprocessor, "steps", []):
+                stats = getattr(step, "_tensor_stats", None)
+                if not stats or "action" not in stats:
+                    continue
+                act_stats = stats["action"]
+                if "max" not in act_stats or "min" not in act_stats:
+                    continue
+                max_abs = max(
+                    abs(float(act_stats["max"].max())),
+                    abs(float(act_stats["min"].min())),
+                )
+                return max_abs > math.pi
+        except Exception as e:  # pragma: no cover - 防御性兜底
+            self._log.debug(f"_action_in_degrees 检测失败,默认按弧度处理: {e}")
+        return False
 
     # ------------------------------------------------------------------
     # 内部：离线检查（本地权重优先，禁止自动联网下载）
@@ -638,16 +699,19 @@ class LeRobotVLA(BaseVLA):
                 f"predict_action_chunk 输出 ndim={action_np.ndim}，期望 1/2/3"
             )
 
-        # 单位转换:lerobot SO101 训练约定 action 单位为"度"(关节)+ 0-100(gripper),
-        # 与本项目 PyBullet SO101 的弧度制不一致。若不转换,大数值会被
-        # POSITION_CONTROL 钳到关节限位,机械臂被卷到错位姿。
+        # 单位转换(条件):lerobot 默认训练约定 action 单位是"度 + gripper 0-100",
+        # 但部分 fine-tune(如 ahmedsohail2003/smolvla-so101-pickplace-v2)直接用
+        # "弧度"训练,统一 np.deg2rad 会把它们缩小 57 倍(env 几乎不动)。
+        # 通过 postprocessor stats 自动判别:max(|min|,|max|) > π 视为"度"。
         # JointMockVLA 走 JointMockVLA.predict,不经此处,契约不受影响。
-        if action_np.shape[1] >= 5:
+        if self._action_in_degrees() and action_np.shape[1] >= 5:
             action_np[:, :5] = np.deg2rad(action_np[:, :5])
-        if action_np.shape[1] >= 6:
-            # gripper:lerobot RANGE_0_100 (0=close,100=open) -> PyBullet rad
-            # SO101 gripper 关节限位[-0.174533, 1.745329]
-            action_np[:, 5] = -0.174533 + (action_np[:, 5] / 100.0) * (1.745329 - (-0.174533))
+            if action_np.shape[1] >= 6:
+                # gripper:lerobot RANGE_0_100 (0=close,100=open) -> PyBullet rad
+                # SO101 gripper 关节限位[-0.174533, 1.745329]
+                action_np[:, 5] = -0.174533 + (action_np[:, 5] / 100.0) * (
+                    1.745329 - (-0.174533)
+                )
 
         return VLAOutput(
             values=action_np.astype(float),
