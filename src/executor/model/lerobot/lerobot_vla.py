@@ -272,15 +272,15 @@ class LeRobotVLA(BaseVLA):
         )
 
     def _check_model_available_locally(self) -> None:
-        """确认权重在本地可用，否则抛明确提示。
+        """确认权重在本地可用，否则自动下载到缓存。
 
-        离线优先策略：model_path 为本地路径时直接使用；为 HF repo_id 时
-        仅允许从已下载缓存读取，缓存不存在则报错并给出手动下载命令，
-        绝不自动联网下载占用缓存。
+        策略：model_path 为本地路径时直接使用；为 HF repo_id 时
+        优先读取已下载缓存；缓存不存在则自动调用 snapshot_download
+        下载到缓存后继续（下载失败抛明确提示，不静默）。
 
         Raises:
             FileNotFoundError: 本地路径不存在。
-            RuntimeError: HF repo_id 但本地缓存中没有该权重。
+            RuntimeError: HF repo_id 自动下载失败。
         """
         if not self._is_hub_repo_id():
             if not os.path.exists(self.model_path):
@@ -292,13 +292,21 @@ class LeRobotVLA(BaseVLA):
 
         cached = self._cached_hub_path(self.model_path)
         if cached is None:
-            raise RuntimeError(
-                f"HuggingFace 权重 '{self.model_path}' 未在本地缓存中找到。\n"
-                f"本项目为离线优先，不会自动联网下载。请手动下载到缓存后再运行：\n"
-                f"  python -c \"from huggingface_hub import snapshot_download; "
-                f"snapshot_download('{self.model_path}')\"\n"
-                f"缓存目录：{os.path.expanduser('~/.cache/huggingface/hub')}"
+            from huggingface_hub import snapshot_download
+
+            self._log.info(
+                f"本地缓存不存在，自动从 HuggingFace 下载 {self.model_path} ..."
             )
+            try:
+                cached = snapshot_download(self.model_path)
+            except Exception as e:
+                raise RuntimeError(
+                    f"自动下载 HuggingFace 权重 '{self.model_path}' 失败：{e}。\n"
+                    "请检查网络连接、代理或 HF_HUB_OFFLINE 环境变量后重试，"
+                    "或手动下载：\n"
+                    f"  python -c \"from huggingface_hub import snapshot_download; "
+                    f"snapshot_download('{self.model_path}')\""
+                ) from e
         self._log.info(f"使用 HuggingFace 本地缓存权重：{self.model_path}（{cached}）")
 
     def _cached_hub_path(self, repo_id: str) -> Optional[str]:
