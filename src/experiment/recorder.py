@@ -4,17 +4,27 @@ Iteration 3 设计原则：
 - 单类一体化：不拆 event_bus / tracer / sink 框架层
 - 业务零侵入：业务代码仅 `recorder.emit(event, **fields)` 一次
 - 进程级单例：`get_recorder()` 拿全局实例，未初始化时返回 `_SafeRecorder`
-- 三类事件：log → experiment.log，observe_image → observer/*.png，video_frame 占位 no-op
+- 三类事件：log → experiment.log，observe_image → observer/*.png，video_frame → process/*.mp4
 - 异常隔离：emit 内部 try/except 吞错，业务主线不受影响
 - enabled=False：所有方法 no-op
+
+Iteration 12 扩展（iter12-video-recording）：
+- `__init__` 新增可选 `video: VideoConfig | None`，None = 不录视频（旧调用兼容）
+- `start()` 创建 `process/` 并 open VideoWriter；`_handle_video_frame` 真实落盘；
+  `finish()` close writer。视频不可用时降级 no-op（一次 warning）。
 """
 
 from __future__ import annotations
 
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TextIO
+
+from experiment.utils import ensure_dir, next_available_dir
+from experiment.video.config import VideoConfig
+from experiment.video.writer import VideoWriter
 
 
 class ExperimentRecorder:
@@ -26,6 +36,8 @@ class ExperimentRecorder:
         log_to_stdout: log 事件是否同步输出到终端。
         exp_dir: 当前实验目录（`start()` 后填充）。
         observer_dir: observer/ 子目录路径。
+        video: 视频配置；None = 不录视频（iter12 新增）。
+        process_dir: process/ 子目录路径（video 启用时创建）。
     """
 
     # event 名 → handler 方法名（dispatch 表）
@@ -40,6 +52,7 @@ class ExperimentRecorder:
         root: Path | str,
         enabled: bool = True,
         log_to_stdout: bool = True,
+        video: VideoConfig | None = None,
     ) -> None:
         self.root = Path(root)
         self.enabled = enabled
@@ -47,34 +60,61 @@ class ExperimentRecorder:
         self.exp_dir: Path | None = None
         self.observer_dir: Path | None = None
         self._log_fh: TextIO | None = None
+        # iter12-video-recording：视频配置与 writer
+        self.video = video
+        self.process_dir: Path | None = None
+        self._video_writer: VideoWriter | None = None
+        self._video_warning_emitted = False
 
     def start(self) -> Path:
-        """创建 `{root}/{timestamp}/` 和 `observer/`，打开 `experiment.log`。
+        """创建 `{root}/{timestamp}/`、`observer/`、`process/`，打开 log 与 VideoWriter。
 
         Returns:
             exp_dir 路径。`enabled=False` 时返回 `self.root`，不创建任何目录。
 
         Note:
-            同一秒内并发场景下自动追加 `_001` `_002` 后缀。
+            - 同一秒内并发场景下自动追加 `_001` `_002` 后缀（utils.next_available_dir）
+            - `video` 非 None 且启用时创建 `process/` 并 open VideoWriter；
+              打开失败降级 no-op（视频不可用，不影响 log/observer）
         """
         if not self.enabled:
             return self.root
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        exp_dir = self.root / timestamp
-        suffix = 1
-        while exp_dir.exists():
-            exp_dir = self.root / f"{timestamp}_{suffix:03d}"
-            suffix += 1
+        exp_dir = next_available_dir(self.root, timestamp)
+        ensure_dir(exp_dir)
 
-        exp_dir.mkdir(parents=True, exist_ok=False)
         observer_dir = exp_dir / "observer"
-        observer_dir.mkdir(exist_ok=True)
+        ensure_dir(observer_dir)
 
         self.exp_dir = exp_dir
         self.observer_dir = observer_dir
         self._log_fh = open(exp_dir / "experiment.log", "a", encoding="utf-8")
+
+        # iter12-video-recording：视频配置启用时打开 writer
+        if self.video is not None and self.video.enabled:
+            process_dir = exp_dir / "process"
+            ensure_dir(process_dir)
+            self.process_dir = process_dir
+            writer = VideoWriter(process_dir, self.video)
+            if writer.open():
+                self._video_writer = writer
+            else:
+                self._video_writer = None
+                self._warn_video_unavailable()
         return exp_dir
+
+    def _warn_video_unavailable(self) -> None:
+        """视频不可用时输出一次 warning（幂等）。"""
+        if self._video_warning_emitted:
+            return
+        self._video_warning_emitted = True
+        warnings.warn(
+            "[ExperimentRecorder] video recording disabled: writer open failed "
+            "(cv2 缺失 / 编码器不可用 / 分辨率非法)，视频录制降级 no-op。",
+            stacklevel=2,
+        )
+
 
     def emit(self, event: str, **fields: Any) -> None:
         """dispatch 表分派到对应 handler。
@@ -126,19 +166,32 @@ class ExperimentRecorder:
         Image.fromarray(image).save(path)
 
     def _handle_video_frame(self, image: Any, timestamp: float) -> None:
-        """本迭代占位 no-op（视频录制未实现）。"""
-        return
+        """委托 VideoWriter 写入一帧（iter12：真实落盘）。
+
+        未配置视频 / writer 不可用时 no-op。
+        """
+        if self._video_writer is None:
+            return
+        self._video_writer.write(image)
 
     def _handle_unknown(self, **fields: Any) -> None:
         """未知 event 默认 no-op。"""
         return
 
     def finish(self, success: bool, summary: str) -> None:
-        """emit `Pipeline finished, success=..., summary=...` + 关闭 log 文件句柄。"""
+        """emit `Pipeline finished, success=..., summary=...` + 关闭 log 与视频 writer。"""
         self.emit(
             "log",
             message=f"Pipeline finished, success={success}, summary={summary}",
         )
+        # iter12-video-recording：close video writer（容错，重复调用安全）
+        if self._video_writer is not None:
+            try:
+                self._video_writer.close()
+            except Exception:
+                pass
+            finally:
+                self._video_writer = None
         if self._log_fh is not None:
             self._log_fh.close()
             self._log_fh = None

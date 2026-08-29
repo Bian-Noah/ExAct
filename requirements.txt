@@ -31,6 +31,11 @@ pybullet                 # 物理仿真本体；Python 3.12 需源码编译（�
 # --- 图像处理 ---
 Pillow                   # PNG/JPEG 编码解码（observe 工具）
 imageio                  # 异步 PNG IO（image_store 持久化，imageio.v3 API）
+# iter12 实验视频录制引入（2026-08-29）：
+#   VideoWriter 封装 cv2.VideoWriter 写 mp4（mp4v/avc1），无头 DIRECT 模式可用。
+#   注意：当前 exact 环境未安装，需手动执行
+#     /Users/noah/miniconda3/envs/exact/bin/pip install opencv-python-headless
+opencv-python-headless   # 无头版 OpenCV（无 GUI 依赖，服务端安全）
 
 # --- 配置加载 ---
 PyYAML                   # 加载 yaml 配置文件

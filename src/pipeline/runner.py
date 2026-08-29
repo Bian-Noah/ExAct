@@ -73,6 +73,8 @@ def _build_recorder(config: AppConfig) -> ExperimentRecorder:
         root=root,
         enabled=exp_cfg.enabled,
         log_to_stdout=exp_cfg.log_to_stdout,
+        # iter12-video-recording：透传 video 配置（None = 不录视频）
+        video=exp_cfg.video,
     )
 
 
@@ -112,7 +114,8 @@ def run_pipeline(
         "log",
         message=f"Pipeline started, user_goal={user_goal!r}, "
                 f"vla_backend={config.vla.backend}, "
-                f"experiment_enabled={config.experiment.enabled}",
+                f"experiment_enabled={config.experiment.enabled}, "
+                f"video_enabled={bool(config.experiment.video and config.experiment.video.enabled)}",
     )
 
     # 3. 组装 env

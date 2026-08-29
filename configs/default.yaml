@@ -74,6 +74,15 @@ experiment:
   enabled: true                  # Iteration 3 启用：开启后每次跑 pipeline 自动落盘到 data/experiment/{timestamp}/
   root: "data/experiment"        # 实验产物根目录（相对项目根）
   log_to_stdout: true            # log 事件是否同时输出到终端
+  # iter12-video-recording:实验过程视频录制配置
+  # 每次实验在 {exp_dir}/process/ 下产出单个 mp4,覆盖 reset → pipeline 结束的物理步进过程
+  video:
+    enabled: true                # 视频录制总开关;False 时不创建 process/、不抓帧
+    filename: "demo.mp4"         # process/ 下输出文件名
+    fps: 15                      # 视频文件帧率标签（播放速度,与物理步进 240Hz 解耦）
+    resolution: [640, 480]       # 抓帧分辨率,必须为偶数宽高（mp4v 编码器要求）
+    camera: null                 # 使用哪个相机名（env.cameras 中的 name）;null = 第一个相机
+    capture_every_n_steps: 1     # 每 N 个物理子步抓 1 帧（默认 1=每子步;调大可降低 CPU 渲染开销）
 
 image_store:
   backend: "memory"            # "memory" | "file"

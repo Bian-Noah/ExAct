@@ -22,6 +22,8 @@ import pybullet_data
 from config.loader import EnvConfig, RobotConfig
 from env.base import BaseEnv, Action7D, ActionSpec
 from env.robot import build_robot
+from experiment.recorder import get_recorder
+from experiment.video.capture import FrameCapturer
 from utils.logging import setup_logging
 
 logger = setup_logging(__name__)
@@ -91,6 +93,33 @@ class PyBulletEnv(BaseEnv):
         self._robot_id = None
         self._object_ids: list[int] = []
         self._plane_id = None
+        # iter12-video-recording：抓帧组件（未启用时为 None）
+        self._capturer: FrameCapturer | None = None
+        self._init_video_capture()
+
+    def _init_video_capture(self) -> None:
+        """iter12-video-recording:构造 FrameCapturer（从 recorder 读 video 配置）。
+
+        未启用（recorder.video 为 None / enabled=False / recorder 未设置）时
+        `self._capturer = None`，step/reset 不接入抓帧，行为与 iter11 一致。
+        """
+        recorder = get_recorder()
+        video_cfg = getattr(recorder, "video", None)
+        if video_cfg is None or not video_cfg.enabled:
+            self._capturer = None
+            return
+        self._capturer = FrameCapturer(
+            env=self, config=video_cfg, recorder=recorder
+        )
+
+    def _substep_callback(self, substep_index: int) -> None:
+        """iter12-video-recording:robot 子步回调 → 抓帧。
+
+        Args:
+            substep_index: 当前子步序号（0-based；capturer 内部自己节流）。
+        """
+        if self._capturer is not None:
+            self._capturer.capture()
 
     def _is_connected(self) -> bool:
         """检查 PyBullet 物理服务器是否仍处于连接状态。"""
@@ -227,6 +256,11 @@ class PyBulletEnv(BaseEnv):
         # 等待物体稳定
         time.sleep(0.5)
 
+        # iter12-video-recording:reset 后重置抓帧计数并抓初始帧
+        if self._capturer is not None:
+            self._capturer.reset_timer()
+            self._capturer.capture()
+
         return self.get_obs()
 
     def step(self, action: Action7D) -> tuple[dict, float, bool, dict]:
@@ -238,7 +272,12 @@ class PyBulletEnv(BaseEnv):
             (obs, reward, done, info) — 当前 reward=0.0，done=False，info={}。
         """
         self._ensure_connected()
-        self.robot.step_action(action, self._robot_id, self._client_id)
+        self.robot.step_action(
+            action,
+            self._robot_id,
+            self._client_id,
+            on_substep=self._substep_callback if self._capturer else None,
+        )
         return self.get_obs(), 0.0, False, {}
 
     def render(self) -> dict[str, np.ndarray]:

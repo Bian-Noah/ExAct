@@ -21,6 +21,8 @@
 | 7     | LLM-VLA 适配器                      | 用 MiniMax-M3 本身作为伪 VLA，机械臂真正响应指令                 | **LLMVLA**         | M4 Air      | ⏳ 待启动     |
 | 9     | smolVLA 指令契约 + 基础探索         | action 指令拦截 + 系统提示词约束 + 笔记本式探索工具               | LLMVLA             | M4 Air      | ⏳ 待启动     |
 | 10    | VLA chunk 接口契约重构              | 把 BaseVLA.predict 从单步改为多步轨迹，executor 按 VLA 输出执行   | smolVLA / Mock    | M4 Air      | ⏳ 待启动     |
+| 11    | LLM 纠错能力与多视角感知            | 允许 LLM 主动复原机械臂 + env 与消费者侧对齐多相机契约           | smolVLA           | M4 Air      | ⏳ 待启动     |
+| 12    | 实验过程视频录制（process 目录）    | 录制实验全过程视频（单 mp4）到 process/ 目录，模块化实现          | 任意（与 VLA 无关）| Mac/Linux   | ⏳ 待启动     |
 
 > 拆分说明：原 Iteration 4「图片存储器与 LLM 视觉能力」任务过多（包含图片存储、observe 改造、action 改造、executor 链路、BaseVLA 契约、config 扩展、pipeline 集成 7 件事），现拆为 4 / 5 / 6 三个迭代。原 Iteration 5（LLM-VLA 适配器）顺延为新 Iteration 7。原 Iteration 3 数据保存方案由"扩展管线接口"改为"ExperimentRecorder 一体化"——业务代码 `recorder.emit(...)` 埋点，由 `src/experiment/recorder.py` 一个类同时负责收集与保存三类数据（`log` → `experiment.log`、`observe_image` → `observer/*.png`、`video_frame` 占位）。每次实验产物在 `ExAct/data/experiment/{时间戳}/` 下。Iteration 6 原计划"image_url 传递链路"反思后改为"VLA 链路验证"——VLA 已能从 env 拿到图，无需 LLM 介入传递，仅补一个 print 验证链路工作。详见下文。
 
@@ -1100,3 +1102,124 @@ Iteration 10 已删除 executor 的 `max_steps` 循环控制（`src/executor/__i
 | 复位对 smolVLA 上下文影响 | fine-tune 量小，home 起点变化可能让推理更 OOD | P0 阶段：复位后跑同一指令，对比 ee_pos 终点是否一致 |
 | wrist 视角相机实现 | SO101 单臂 URDF 是否支持 link-挂载相机 | 检查 `so101_new_calib.urdf` 的 link 结构 |
 | env 多相机配置 schema | 现有 `EnvConfig` 字段是否需要重构 | 调研 env.camera_resolution 等已有字段是否复用 |
+
+---
+
+## Iteration 12: 实验过程视频录制（process 目录）
+
+**状态**：⏳ 待启动（设计已完成，见 `.local/iter12-video-recording-design/`）
+
+**目标**：在每次实验目录 `data/experiment/{timestamp}/` 下新增 `process/` 目录，录制整个实验过程的视频（单 mp4），用于记录、回放和演示。采用**模块化架构**——视频代码（配置/写入/抓帧）拆分为独立子包，不堆在 `recorder.py` 或 `pybullet_env.py` 单文件，便于后续维护与扩展。
+
+### 背景
+
+Iteration 3 的 `ExperimentRecorder` 已在 `EVENT_HANDLERS` 中登记了 `video_frame` 事件（handler 为 no-op 占位），本迭代将其实现为真正的 mp4 写入。
+
+关键前提（来自 pybullet 调研）：
+
+- 实验默认 `mode: direct`（无头），官方 `STATE_LOGGING_VIDEO_MP4` **仅 GUI/SHARED_MEMORY 模式可用**（官方作者论坛确认），在 DIRECT 下不可用 → 必须走 `getCameraImage` 逐帧抓取 + 编码合成的方案
+- 编码用 `opencv-python-headless`（项目 stage2 已有依赖，自带 mp4v 编码器，无头开箱即用，零新增依赖）
+- 视频代码量不小（抓帧、编码、配置、节流、生命周期、相机选择），**不能全部堆进 `recorder.py`**——需要模块化
+
+### 核心设计
+
+#### 模块化目录结构
+
+```
+src/experiment/
+├── __init__.py        (M) 对外导出增加 VideoConfig
+├── recorder.py        (M) video_frame handler 实现 + 持有 VideoWriter + process/ 目录 + 生命周期
+├── utils.py           (N) 通用工具：时间戳/目录创建/偶数分辨率校验/相对路径解析
+└── video/             (N) 视频子系统子包
+    ├── __init__.py    (N) 导出 VideoConfig / VideoWriter / FrameCapturer
+    ├── config.py      (N) VideoConfig dataclass（fps/resolution/camera/采样间隔）
+    ├── writer.py      (N) VideoWriter：cv2.VideoWriter 封装（open/write/close、RGB→BGR、降级容错）
+    └── capture.py     (N) FrameCapturer：抓帧策略（每N子步、相机选择、emit video_frame）
+```
+
+#### 数据链路（事件驱动，业务零侵入）
+
+```
+robot.step_action(..., on_substep=cb)        # 每物理子步回调（Panda/SO101 各加一行可选钩子）
+  → env._substep_callback(i)                 # 回调跳回 env 上下文
+  → FrameCapturer.capture()                  # getCameraImage → RGBA→RGB
+  → recorder.emit("video_frame", image, ts)  # 事件总线（唯一入口）
+  → ExperimentRecorder._handle_video_frame   # dispatch 表查找（早已注册）
+  → VideoWriter.write()                      # RGB→BGR + cv2 编码
+  → data/experiment/{ts}/process/demo.mp4
+```
+
+#### 四个关键决策（已与用户确认）
+
+| 决策 | 结论 | 说明 |
+|------|------|------|
+| 模块组织 | `experiment/video/` 子包 + `utils.py` | 视频作为独立子系统内聚，扩展有落点 |
+| 抓帧驱动 | env 层自动驱动 | agent/executor/LLM 零感知，物理子步回调触发 |
+| 帧率粒度 | 物理子步级（每子步 1 帧） | 一次动作 10 子步留 10 帧，画面丝滑；`capture_every_n_steps` 可降采样 |
+| recorder 关系 | 单一 ExperimentRecorder 持有 VideoWriter | 不新增第二个 recorder，对外 API/单例机制不变 |
+
+### 任务
+
+1. **`src/experiment/utils.py`（新增）**
+   - `make_timestamp()` / `next_available_dir()` / `ensure_dir()` / `validate_even_resolution()` / `resolve_path()`
+   - recorder 与 video 子包共用，消除重复
+
+2. **`src/experiment/video/` 子包（新增）**
+   - `config.py`：`VideoConfig` dataclass（enabled/filename/fps/resolution/camera/capture_every_n_steps），`from_dict` 缺省容错 + 偶数分辨率校验
+   - `writer.py`：`VideoWriter`（open/write/close/is_open），fourcc=mp4v（失败回退 avc1），RGB→BGR 转换，异常全捕获降级 no-op
+   - `capture.py`：`FrameCapturer`（每 N 子步抓 1 帧、相机选择、RGBA→RGB、emit video_frame、节流日志）
+
+3. **`src/experiment/recorder.py`（修改）**
+   - 构造参数增加 `video: VideoConfig | None = None`，持有 `VideoWriter`
+   - `start()`：用 utils 创建 `{ts}/` + `observer/` + `process/`，open VideoWriter
+   - `_handle_video_frame()`：从 no-op 改为委托 `self._video_writer.write(image)`
+   - `finish()`：新增 close VideoWriter
+
+4. **`src/env/pybullet_env.py`（修改）**
+   - 构造 `FrameCapturer`（`get_recorder().video` 未启用则为 None）
+   - `step()`：调 `robot.step_action(..., on_substep=self._substep_callback)`（capturer 存在时）
+   - `reset()`：场景重建后抓 1 帧初始画面 + 重置 capturer 计数
+
+5. **robot 层子步回调钩子（修改，Panda + SO101）**
+   - `step_action(action, robot_id, client_id, on_substep=None)`：循环内每 `stepSimulation` 后 `if on_substep: on_substep(i)`
+   - 默认 None → 现有调用零改动，行为不变
+
+6. **`src/config/loader.py` + `configs/default.yaml`（修改）**
+   - `ExperimentConfig` 增加 `video: VideoConfig | None = None`（复用 `experiment.video.config.VideoConfig` 避免双份定义）
+   - yaml 新增 `experiment.video` 段（enabled/filename/fps/resolution/camera/capture_every_n_steps）
+
+7. **`src/pipeline/runner.py`（修改）**
+   - `_build_recorder` 透传 `video=config.experiment.video`
+
+8. **测试（新增 `tests/experiment/test_video_*.py`）**
+   - VideoConfig 解析/校验、VideoWriter 生命周期、FrameCapturer 抓帧/emit、异常隔离（cv2 缺失降级）
+
+### 交付物
+
+- `src/experiment/video/` 子包（config/writer/capture）+ `src/experiment/utils.py`
+- `recorder.py` 实现 video_frame 落盘 + process/ 目录 + VideoWriter 生命周期
+- env 层抓帧驱动 + robot 子步回调钩子（Panda/SO101）
+- `config.experiment.video` 配置段
+- 每次实验自动产出 `data/experiment/{ts}/process/demo.mp4`
+- 单元测试 + 无头环境端到端冒烟（生成 mp4 可播放）
+
+### 不在本迭代
+
+- ❌ 修改历史实验数据（只对之后新产生的实验生效）
+- ❌ GUI 模式官方 `STATE_LOGGING_VIDEO_MP4`（与 `mode: direct` 无头部署矛盾）
+- ❌ 多段分片视频 / PNG 帧序列导出（本次只产出单个 mp4）
+- ❌ 视频上传 / 在线预览 / 播放器集成
+- ❌ agent / executor / LLM 决策逻辑改动（纯数据采集侧功能）
+
+### 性能与风险
+
+- **性能**：物理子步级抓帧（240Hz 物理 × getCameraImage）在 DIRECT + CPU 渲染下有可观耗时；通过 `capture_every_n_steps`（默认 1）可降采样缓解；录制失败降级 no-op 不阻塞仿真
+- **风险 1**：`cv2.VideoWriter` 需偶数宽高、mp4v 编码器兼容性 → `utils.validate_even_resolution` + 打开失败降级 warn
+- **风险 2**：子步回调引入两处（robot 层）重复 → 回调逻辑仅一行（`on_substep and on_substep(i)`），风险可控
+- **风险 3**：FrameCapturer 与 env 生命周期（连接断开）→ capture 内 try/except 吞错 + 节流日志
+
+### 参考
+
+- 概览设计：`.local/iter12-video-recording-design/design.md`
+- 详细设计：`.local/iter12-video-recording-design/design-detail.md`
+- pybullet 视频录制调研结论：官方 `STATE_LOGGING_VIDEO_MP4` 仅 GUI/SHARED_MEMORY 可用（pybullet.org phpBB3 p=40403），DIRECT 无头场景官方推荐 `getCameraImage` + Python 合成

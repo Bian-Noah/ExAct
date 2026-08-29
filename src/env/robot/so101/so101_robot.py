@@ -44,7 +44,13 @@ class SO101Robot:
         """SO101 消费 joint 空间 6 维动作（5 臂 + gripper）。"""
         return ActionSpec("joint", ("joint",) * 6)
 
-    def step_action(self, action, robot_id: int, client_id: int) -> None:
+    def step_action(
+        self,
+        action,
+        robot_id: int,
+        client_id: int,
+        on_substep=None,
+    ) -> None:
         """执行一步动作：POSITION_CONTROL 驱动 5 臂关节 + gripper + 推进物理。
 
         Args:
@@ -57,6 +63,9 @@ class SO101Robot:
                 语义必须接受的副作用（详见 docstring 外的 TODO 注释）。
             robot_id: pybullet 中该机器人的 body id。
             client_id: pybullet 连接 id。
+            on_substep: iter12-video-recording 可选回调——每个物理子步
+                stepSimulation 后调用 `on_substep(i)`（i 为 0-based 子步序号）；
+                默认 None 保持原行为。
         """
         # TODO(增量 vs 绝对值 语义切换):
         #     现状：step_action 把 action 当作**绝对关节角**(VLA 真模型对齐)。
@@ -92,10 +101,13 @@ class SO101Robot:
         # 推进物理直至 5 臂关节收敛到目标（部分执行 → 全部执行）。
         # POSITION_CONTROL 靠 PD 逐步逼近，固定步数（如 10）会中途返回导致
         # 关节只走一部分、末端位移偏小；改为轮询关节误差直至收敛，超时兜底。
+        # iter12-video-recording:每子步 stepSimulation 后回调 on_substep。
         converge_tol = 1e-3  # 关节误差阈值 rad（≈0.057°）
         max_steps = 300      # 兜底上限（300 步 ≈ 1.25s @240Hz），防限位/卡死死循环
         for step in range(max_steps):
             p.stepSimulation(physicsClientId=client_id)
+            if on_substep is not None:
+                on_substep(step)
             if step % 5 == 0:  # 每 5 步查一次误差，降低 getJointStates 开销
                 states = p.getJointStates(
                     robot_id, self.arm_joint_indices, physicsClientId=client_id

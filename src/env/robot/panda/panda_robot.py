@@ -39,13 +39,22 @@ class PandaRobot:
             "task", ("dx", "dy", "dz", "drx", "dry", "drz", "gripper")
         )
 
-    def step_action(self, action, robot_id: int, client_id: int) -> None:
+    def step_action(
+        self,
+        action,
+        robot_id: int,
+        client_id: int,
+        on_substep=None,
+    ) -> None:
         """执行一步动作：IK + 关节驱动 + 夹爪控制 + 推进物理。
 
         Args:
             action: task 空间动作（Action7D，含 dx/dy/dz 位移、gripper 开合）。
             robot_id: pybullet 中该机器人的 body id。
             client_id: pybullet 连接 id。
+            on_substep: iter12-video-recording 可选回调——每个物理子步
+                stepSimulation 后调用 `on_substep(i)`（i 为 0-based 子步序号）；
+                默认 None 保持原行为。
         """
         # 获取当前末端位置
         link_state = p.getLinkState(
@@ -89,9 +98,11 @@ class PandaRobot:
             physicsClientId=client_id,
         )
 
-        # 推进物理仿真
-        for _ in range(10):
+        # 推进物理仿真（iter12-video-recording:每子步回调 on_substep）
+        for i in range(10):
             p.stepSimulation(physicsClientId=client_id)
+            if on_substep is not None:
+                on_substep(i)
 
     def get_joint_state(self, robot_id: int, client_id: int) -> np.ndarray:
         """读取 Panda 当前关节角（仅臂，finger 不在 VLA state 里）作为 VLA 的 state 输入。

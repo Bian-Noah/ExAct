@@ -30,8 +30,8 @@ def test_step_delegates_to_robot():
     calls = []
 
     class FakeRobot:
-        def step_action(self, action, robot_id, client_id):
-            calls.append((action, robot_id, client_id))
+        def step_action(self, action, robot_id, client_id, on_substep=None):
+            calls.append((action, robot_id, client_id, on_substep))
 
     env.robot = FakeRobot()
     env._ensure_connected = lambda: None
@@ -41,6 +41,7 @@ def test_step_delegates_to_robot():
 
     obs, reward, done, info = env.step("dummy_action")
 
-    assert calls == [("dummy_action", 7, 9)]
+    # iter12-video-recording:未配置视频时 on_substep 传 None（不破坏原行为）
+    assert calls == [("dummy_action", 7, 9, None)]
     assert obs == {"ee_pos": (0.0, 0.0, 0.0)}
     env.close()

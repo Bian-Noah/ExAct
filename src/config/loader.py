@@ -9,6 +9,9 @@ from typing import TypeVar, Type, Optional, get_type_hints, Literal
 import yaml
 
 from .image_store_config import ImageStoreConfig
+# iter12-video-recording:VideoConfig 定义在 experiment/video/config.py,
+# loader 复用 import 避免双份定义漂移(设计文档 1.8 注)
+from experiment.video.config import VideoConfig
 
 T = TypeVar("T")
 
@@ -230,10 +233,12 @@ class ExperimentConfig:
         enabled: 是否开启实验录制。False 时 ExperimentRecorder 全 no-op。
         root: 实验产物根目录（相对项目根的字符串路径）。
         log_to_stdout: log 事件是否同步输出到终端。
+        video: 视频录制配置（iter12-video-recording 引入）；None = 不录视频（旧配置兼容）。
     """
     enabled: bool = True
     root: str = "data/experiment"
     log_to_stdout: bool = True
+    video: VideoConfig | None = None
 
 
 @dataclass
@@ -403,6 +408,21 @@ def _from_dict(data: dict, cls: Type[T]) -> T:
                 seen_names.add(cam_spec.name)
                 cameras_list.append(cam_spec)
             kwargs[fname] = tuple(cameras_list)
+            continue
+        # iter12-video-recording:ExperimentConfig.video 特殊处理——
+        # dict → VideoConfig;解析失败回退 None + warning(设计文档 4.3 配置类错误策略)
+        if cls is ExperimentConfig and fname == "video":
+            if raw_value is None:
+                kwargs[fname] = None
+                continue
+            try:
+                kwargs[fname] = VideoConfig.from_dict(raw_value)
+            except (ValueError, TypeError) as e:
+                warnings.warn(
+                    f"配置 'ExperimentConfig.video' 解析失败（{e}），"
+                    "视频录制回退为禁用（video=None）。"
+                )
+                kwargs[fname] = None
             continue
         # 通用 tuple 字段：list → tuple 转换 + 元素类型校验
         # 适用于 RobotConfig.arm_joint_indices / base_position 等
