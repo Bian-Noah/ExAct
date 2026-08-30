@@ -184,7 +184,7 @@ def main() -> int:
         if isinstance(vla, JointMockVLA):
             print(f"[vla] JointMockVLA(seed=0)（joint 空间 6 维，关节增量 [-0.1, 0.1] rad）")
         else:
-            print(f"[vla] MockVLA(seed=0)（task 空间 7 维，位移 [-0.02, 0.02] m）")
+            print(f"[vla] MockVLA(seed=0)（task 空间 7 维，位移 [-0.15, 0.15] m）")
     else:
         try:
             vla = create_vla(vla_cfg, LLMConfig(api_key="dummy"))
@@ -276,7 +276,7 @@ def main() -> int:
     if cumulative_disp < 0.01:
         print(f"❌ 机械臂基本没动（累计位移 {cumulative_disp:.4f} m < 0.01 m）。")
         print("   可能原因：")
-        print("   (a) VLA 输出的位移太小（mock 是 ±0.02 m 内随机）")
+        print("   (a) VLA 输出的位移太小（mock 是 ±0.15 m 内随机）")
         print("   (b) check_done 阈值 0.01 m 过严，单步位移可能 ≥ 但 < 阈值")
         print("   (c) adapter 路径错误：VLA 输出未正确喂给 env.step")
         print("   (d) env.step 内部没推进物理（time.sleep 缺失、IK 求解失败）")

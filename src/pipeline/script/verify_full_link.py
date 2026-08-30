@@ -200,6 +200,7 @@ def main() -> int:
         base_position=cfg.robot.base_position,
         panda=cfg.robot.panda,
         so101=cfg.robot.so101,
+        widowx=cfg.robot.widowx,
     )
     env = PyBulletEnv(env_config=env_cfg, robot_config=robot_cfg)
 

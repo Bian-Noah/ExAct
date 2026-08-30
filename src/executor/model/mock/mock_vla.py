@@ -19,7 +19,19 @@ from executor.model.base import BaseVLA, VLAOutput
 
 
 class MockVLA(BaseVLA):
-    """Mock VLA：基于 instruction 哈希生成伪随机 7D 动作。"""
+    """Mock VLA：基于 instruction 哈希生成伪随机 7D 动作。
+
+    幅度设计（用户 2026-08-30 要求"非常明显"）：
+      - 位移分量范围 [-0.15, 0.15] 米/步（单步 15cm，肉眼明显可见）
+      - 旋转分量范围 [-0.15, 0.15] 弧度/步
+      - gripper 固定 0.5（半开半合）
+    注：widowx 工作空间约 ±0.3m，单步 0.15m 多次随机游走可能撞限位，
+    但单步动作在范围内，链路验证目的达成。
+    """
+
+    # 位移/旋转分量范围（类常量，便于测试引用）
+    TRANSLATION_RANGE: float = 0.15   # 米/步
+    ROTATION_RANGE: float = 0.15      # 弧度/步
 
     def __init__(self, seed: int = 0):
         """初始化 MockVLA。
@@ -44,7 +56,7 @@ class MockVLA(BaseVLA):
     ) -> VLAOutput:
         """生成伪随机 7D 动作（chunk shape `(1, 7)`）。
 
-        位移分量范围 [-0.02, 0.02] 米，旋转分量范围 [-0.05, 0.05] 弧度，
+        位移分量范围 [-0.15, 0.15] 米，旋转分量范围 [-0.15, 0.15] 弧度，
         夹爪固定 0.5（半开半合）。相同 seed + instruction 输出一致。
 
         Args:
@@ -63,13 +75,15 @@ class MockVLA(BaseVLA):
 
         rng = random.Random(combined_seed)
 
-        # 生成 7D 动作分量
-        dx = rng.uniform(-0.02, 0.02)
-        dy = rng.uniform(-0.02, 0.02)
-        dz = rng.uniform(-0.02, 0.02)
-        drx = rng.uniform(-0.05, 0.05)
-        dry = rng.uniform(-0.05, 0.05)
-        drz = rng.uniform(-0.05, 0.05)
+        # 生成 7D 动作分量（幅度加大：位移 ±0.15m/步，旋转 ±0.15rad/步）
+        r = self.TRANSLATION_RANGE
+        rot = self.ROTATION_RANGE
+        dx = rng.uniform(-r, r)
+        dy = rng.uniform(-r, r)
+        dz = rng.uniform(-r, r)
+        drx = rng.uniform(-rot, rot)
+        dry = rng.uniform(-rot, rot)
+        drz = rng.uniform(-rot, rot)
         gripper = 0.5
 
         values = np.array(
@@ -85,7 +99,7 @@ class JointMockVLA(BaseVLA):
     相同的伪随机种子机制（基于 instruction MD5 哈希 + seed 异或），便于 pytest
     断言可复现。故意忽略 image 参数。
 
-    关节增量范围 [-0.1, 0.1] rad（约 ±5.7°/步），与 MockVLA 的 ±0.02 m 位移
+    关节增量范围 [-0.1, 0.1] rad（约 ±5.7°/步），与 MockVLA 的 ±0.15 m 位移
     在视觉/数值上等量级，便于 mock 模拟产生可见运动。
     """
 

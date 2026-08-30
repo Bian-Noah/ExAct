@@ -218,6 +218,31 @@ class SO101RobotConfig:
 
 
 @dataclass
+class WidowxRobotConfig:
+    """WidowX 机器人特化配置（仅 robot.type == "widowx" 时生效）。
+
+    add-widowx-robot 新增：wx250.urdf 关节布局 5 臂 (0-4) + 2 夹爪 (9,10)，
+    ee_link = /ee_gripper_link (index 11)。URDF 首次运行时自动下载
+    （urdf_url → urdf_local_path），本地已有则跳过（幂等）。
+
+    Attributes:
+        arm_joint_indices: 5 个机械臂关节索引。
+        ee_link_index: 末端执行器 link 索引（/ee_gripper_link）。
+        gripper_joint_indices: 夹爪 2 指关节索引。
+        urdf_url: URDF 下载地址（github.com/raw 通道，本环境实测可用）。
+        urdf_local_path: URDF 本地落盘路径（与 robot.urdf_path 顶层字段须一致）。
+    """
+    arm_joint_indices: tuple[int, ...] = (0, 1, 2, 3, 4)
+    ee_link_index: int = 11
+    gripper_joint_indices: tuple[int, ...] = (9, 10)
+    urdf_url: str = (
+        "https://github.com/ismarou/manipulator_gym/raw/main/"
+        "manipulator_gym/utils/assets/widowx/urdf/wx250.urdf"
+    )
+    urdf_local_path: str = "robot/widowx/wx250.urdf"
+
+
+@dataclass
 class RobotConfig:
     """机械臂配置。
 
@@ -227,12 +252,14 @@ class RobotConfig:
       - panda: Panda 特化嵌套配置（arm_joint_indices / ee_link_index /
         finger_joint_indices 迁入此处，带默认值 fallback）。
       - so101: SO101 特化嵌套配置（arm_joint_indices / ee_link_index）。
+      - widowx: WidowX 特化嵌套配置（add-widowx-robot 新增）。
     """
     type: str = "panda"
     urdf_path: str = "franka_panda/panda.urdf"
     base_position: tuple[float, float, float] = (0.0, 0.0, 0.0)
     panda: PandaRobotConfig = field(default_factory=PandaRobotConfig)
     so101: SO101RobotConfig = field(default_factory=SO101RobotConfig)
+    widowx: WidowxRobotConfig = field(default_factory=WidowxRobotConfig)
 
 
 @dataclass

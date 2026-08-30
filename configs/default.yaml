@@ -65,6 +65,12 @@ robot:
   so101:                          # SO101 特化配置（robot.type=so101 时生效）
     arm_joint_indices: [0, 1, 2, 3, 4, 5]
     ee_link_index: 6
+  widowx:                         # WidowX 特化配置（robot.type=widowx 时生效）
+    arm_joint_indices: [0, 1, 2, 3, 4]    # 5 臂关节（wx250.urdf）
+    ee_link_index: 11                     # /ee_gripper_link
+    gripper_joint_indices: [9, 10]        # 夹爪 2 指
+    # urdf_url / urdf_local_path 默认即可；切换 widowx 时顶层 urdf_path 须指向
+    # "robot/widowx/wx250.urdf"（与 urdf_local_path 一致），首次运行自动下载
 
 task:
   default_user_goal: "把机械臂移到红色方块上方"

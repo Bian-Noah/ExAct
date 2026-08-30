@@ -6,11 +6,13 @@
 from config.loader import RobotConfig
 from env.robot.panda.panda_robot import PandaRobot
 from env.robot.so101.so101_robot import SO101Robot
+from env.robot.widowx.widowx_robot import WidowxRobot
 
 # type → Robot 类 注册表
 _ROBOT_REGISTRY: dict[str, type] = {
     "panda": PandaRobot,
     "so101": SO101Robot,
+    "widowx": WidowxRobot,
 }
 
 

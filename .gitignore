@@ -13,5 +13,5 @@ __pycache__/
 *.pyo
 *.pyd
 models/
-robot/
+/robot/
 .workbuddy

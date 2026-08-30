@@ -85,18 +85,18 @@ def test_mockvla_predict_returns_vlaoutput():
 
 
 def test_mockvla_field_ranges():
-    """位移在 [-0.02, 0.02]，旋转在 [-0.05, 0.05]，gripper=0.5。"""
+    """位移在 [-0.15, 0.15]，旋转在 [-0.15, 0.15]，gripper=0.5。"""
     v = MockVLA(seed=0)
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     for i in range(10):
         result = v.predict(image, f"instruction_{i}").values
         chunk = result[0]  # shape (7,)
-        assert -0.02 <= chunk[0] <= 0.02  # dx
-        assert -0.02 <= chunk[1] <= 0.02  # dy
-        assert -0.02 <= chunk[2] <= 0.02  # dz
-        assert -0.05 <= chunk[3] <= 0.05  # drx
-        assert -0.05 <= chunk[4] <= 0.05  # dry
-        assert -0.05 <= chunk[5] <= 0.05  # drz
+        assert -MockVLA.TRANSLATION_RANGE <= chunk[0] <= MockVLA.TRANSLATION_RANGE  # dx
+        assert -MockVLA.TRANSLATION_RANGE <= chunk[1] <= MockVLA.TRANSLATION_RANGE  # dy
+        assert -MockVLA.TRANSLATION_RANGE <= chunk[2] <= MockVLA.TRANSLATION_RANGE  # dz
+        assert -MockVLA.ROTATION_RANGE <= chunk[3] <= MockVLA.ROTATION_RANGE  # drx
+        assert -MockVLA.ROTATION_RANGE <= chunk[4] <= MockVLA.ROTATION_RANGE  # dry
+        assert -MockVLA.ROTATION_RANGE <= chunk[5] <= MockVLA.ROTATION_RANGE  # drz
         assert chunk[6] == 0.5  # gripper
 
 
