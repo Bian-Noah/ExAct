@@ -1,0 +1,74 @@
+# ============================================================================
+# ExAct 全项目依赖 —— OpenVLA 版（单文件安装，与 requirements.txt 二选一）
+# ============================================================================
+# 背景（2026-08-30 决定）：
+#   - lerobot 只用于 VLA 后端，与 OpenVLA 硬冲突（transformers==4.40.1 vs
+#     lerobot[smolvla] 的 >=5.4 / torch==2.2.0 vs >=2.7，交集为空）。
+#     决定：不再安装 lerobot，直接以 OpenVLA 作为唯一 VLA 后端。
+#   - 主系统其余依赖（仿真/图像/配置/Agent 编排/测试）与 OpenVLA 依赖无冲突，
+#     因此【一个文件、一个环境】即可装齐整个项目，无需先装 requirements.txt。
+#   - 本文件 = OpenVLA 官方锁定依赖 + 主系统全部依赖（不含 lerobot）。
+#   - 原 requirements.txt 是 lerobot 路线，与本文互斥，二选一。
+#
+# 【安装（一条命令）】
+#   conda create -n openvla python=3.11 -y && conda activate openvla
+#   pip install -r requirements-openvla.txt
+#   pip check
+#
+# 【环境要求】
+#   - Python 3.10 或 3.11：OpenVLA 官方锁 torch 2.2.0，其 wheel 仅到 cp311
+#     （3.12 装不上）；顺带 pybullet 在 3.10/3.11 有预编译 wheel，无需源码编译。
+#
+# 【torch 平台说明】
+#   - torch==2.2.0 声明在下方，pip 按平台自动选 wheel：
+#       Linux + NVIDIA GPU → PyPI 默认 CUDA 11.8 版（自动带 nvidia-* 依赖）
+#       macOS / 无 GPU     → pip 自动选 CPU wheel
+#   - 想改用 conda 装 CUDA 版（则删除下方 torch 三行，避免 pip 覆盖）：
+#       conda install pytorch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 \
+#           pytorch-cuda=12.1 -c pytorch -c nvidia
+#   - bitsandbytes（4bit 量化）仅 Linux+CUDA 可用；macOS 装不上可注释掉该行。
+# ============================================================================
+
+# --- PyTorch 2.2（OpenVLA 官方锁定；Python 必须 <=3.11）---
+torch==2.2.0
+torchvision==0.17.0
+torchaudio==2.2.0
+
+# --- OpenVLA 核心（官方 pyproject == 锁定，勿放宽）---
+transformers==4.40.1        # 与 lerobot[smolvla] 冲突源之一；openvla-7b remote code 依赖
+timm==0.9.10                # Prismatic 视觉骨干（SigLIP）
+tokenizers==0.19.1          # transformers 4.40.1 配套约束 <0.20,>=0.19
+peft==0.11.1                # 官方主依赖锁定（LoRA 权重加载路径）
+sentencepiece==0.1.99       # Llama tokenizer 加载
+accelerate>=0.25.0          # low_cpu_mem_usage=True 低内存加载
+einops                      # Prismatic 视觉骨干
+huggingface_hub<1.0         # transformers 4.40.1 要求 <1.0,>=0.19.3
+# flash-attn==2.5.5         # 可选加速（需编译）；缺包时 openvla_vla.py 自动回退 eager
+
+# --- VLA 量化（4bit/8bit；仅 Linux+CUDA，macOS 装不上可注释）---
+bitsandbytes>=0.43          # 与 torch 2.2.0 兼容性待实测（设计文档已标注）
+
+# --- 数值约束 ---
+numpy<2.0                   # torch 2.2.0 与 numpy 2.x ABI 不兼容（官方未锁，实测约束）
+
+# --- 仿真环境 ---
+pybullet
+
+# --- 图像处理（observe 工具 / image_store 持久化 / iter12 视频录制）---
+Pillow
+imageio
+opencv-python-headless==4.10.0.84   # 锁 4.10：numpy 约束无上限（>=1.23.5），兼容 numpy<2.0；
+                                    # 新版 opencv 收紧到 numpy>=2，避免冲突
+
+# --- 配置加载 ---
+PyYAML
+
+# --- LLM / Agent 编排（Agent 工具契约 + ChatOpenAI + 状态图运行时）---
+langchain-core
+langchain-openai
+langgraph
+pydantic
+
+# --- 测试 ---
+pytest
+pytest-cov

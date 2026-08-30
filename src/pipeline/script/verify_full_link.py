@@ -223,6 +223,7 @@ def main() -> int:
             model_path=cfg.vla.model_path,
             mock=cfg.vla.mock,
             lerobot=cfg.vla.lerobot,
+            openvla=cfg.vla.openvla,
         )
         try:
             vla = create_vla(vla_cfg, LLMConfig(api_key=cfg.llm.api_key))

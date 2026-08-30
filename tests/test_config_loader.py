@@ -15,6 +15,7 @@ from src.config.loader import (
     ExploreConfig,
     LerobotConfig,
     LLMConfig,
+    OpenVLAConfig,
     RobotConfig,
     TaskConfig,
     VLAConfig,
@@ -124,6 +125,36 @@ def test_experiment_config_defaults():
     assert cfg.enabled is True
     assert cfg.root == "data/experiment"
     assert cfg.log_to_stdout is True
+
+
+def test_openvla_config_defaults():
+    cfg = OpenVLAConfig()
+    assert cfg.unnorm_key == "bridge_orig"
+    assert cfg.attn_impl == "flash_attention_2"
+    assert cfg.device == "cuda:0"
+    assert cfg.dtype == "bfloat16"
+    assert cfg.quantization == "4bit"
+
+
+def test_vla_config_openvla_default_factory():
+    # VLAConfig 默认的 openvla 嵌套字段使用默认 OpenVLAConfig
+    cfg = VLAConfig()
+    assert isinstance(cfg.openvla, OpenVLAConfig)
+    assert cfg.openvla.quantization == "4bit"
+    # backend 指定为 openvla 不抛错
+    cfg2 = VLAConfig(backend="openvla")
+    assert cfg2.backend == "openvla"
+    assert isinstance(cfg2.openvla, OpenVLAConfig)
+
+
+def test_openvla_config_from_dict_partial():
+    vla = _from_dict({"openvla": {"quantization": "none"}}, VLAConfig)
+    assert vla.openvla.quantization == "none"
+    # 未提供的字段走默认
+    assert vla.openvla.unnorm_key == "bridge_orig"
+    assert vla.openvla.attn_impl == "flash_attention_2"
+    assert vla.openvla.device == "cuda:0"
+    assert vla.openvla.dtype == "bfloat16"
 
 
 # ---------- 2. _from_dict 正常场景 ----------

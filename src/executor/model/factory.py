@@ -1,7 +1,10 @@
 """VLA 模型工厂：按 vla_config.backend 字段分派，返回 BaseVLA 子类实例。
 
-当前只支持 MockVLA。llm_vla / small_vla / openvla 三种 backend
-在对应 Iteration 启用前调用 create_vla 会抛 NotImplementedError。
+已实现后端：mock / lerobot / openvla。
+llm_vla / small_vla 在对应 Iteration 启用前调用 create_vla 会抛 NotImplementedError。
+
+openvla 后端延迟导入（openvla_vla 顶层零 torch import，构造安全），
+M4 Mac（无 torch）环境调用 create_vla(backend="openvla") 不会报 ImportError。
 """
 
 from config.loader import LLMConfig, VLAConfig
@@ -14,7 +17,7 @@ def create_vla(vla_config: VLAConfig, llm_config: LLMConfig | None = None) -> Ba
 
     Args:
         vla_config: VLAConfig 实例（backend 字段决定分派目标；lerobot 后端还
-            会读取 vla_config.lerobot 嵌套配置）。
+            会读取 vla_config.lerobot 嵌套配置，openvla 后端读取 vla_config.openvla）。
         llm_config: 可选，LLMVLA 后端（Iteration 5）会用到；当前所有已实现后端
             均忽略此参数。
 
@@ -22,8 +25,9 @@ def create_vla(vla_config: VLAConfig, llm_config: LLMConfig | None = None) -> Ba
         BaseVLA 子类实例。
 
     Raises:
-        NotImplementedError: backend 为 llm_vla / small_vla / openvla 时。
-        ValueError: backend 为未知字符串时，或 backend=mock 但 variant 不识别时。
+        NotImplementedError: backend 为 llm_vla / small_vla 时。
+        ValueError: backend 为未知字符串时，或 backend=mock 但 variant 不识别时，
+            或 backend=openvla 但 model_path 缺失（OpenVLA 构造校验兜住）。
     """
     backend = vla_config.backend
 
@@ -60,8 +64,17 @@ def create_vla(vla_config: VLAConfig, llm_config: LLMConfig | None = None) -> Ba
             "VLA backend 'small_vla' 在 Iteration 9 才实现，当前迭代（iter1）仅预留接口"
         )
     if backend == "openvla":
-        raise NotImplementedError(
-            "VLA backend 'openvla' 在 Iteration 10 才实现，当前迭代（iter1）仅预留接口"
+        # 延迟导入：openvla_vla 顶层零 torch import（决策 6），构造不加载模型
+        from executor.model.openvla.openvla_vla import OpenVLA
+
+        oc = vla_config.openvla
+        return OpenVLA(
+            model_path=vla_config.model_path,
+            unnorm_key=oc.unnorm_key,
+            attn_impl=oc.attn_impl,
+            device=oc.device,
+            dtype=oc.dtype,          # str 直传；首次加载时 _ensure_loaded 内解析
+            quantization=oc.quantization,
         )
 
     raise ValueError(f"未知 VLA backend: {backend!r}")

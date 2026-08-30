@@ -6,9 +6,11 @@
 import pytest
 
 from config import LLMConfig, VLAConfig
+from config.loader import OpenVLAConfig
 from executor.model.base import BaseVLA
 from executor.model.factory import create_vla
 from executor.model.mock.mock_vla import JointMockVLA, MockVLA
+from executor.model.openvla.openvla_vla import OpenVLA
 
 
 def test_create_vla_mock_backend():
@@ -60,9 +62,29 @@ def test_create_vla_small_vla_not_implemented():
         create_vla(VLAConfig(backend="small_vla"))
 
 
-def test_create_vla_openvla_not_implemented():
-    """backend='openvla' 抛 NotImplementedError，错误信息含 Iteration 10。"""
-    with pytest.raises(NotImplementedError, match="Iteration 10"):
+def test_create_vla_openvla_returns_openvla():
+    """backend='openvla' 返回 OpenVLA 实例（BaseVLA 子类），构造不抛错不加载模型。"""
+    vla = create_vla(VLAConfig(backend="openvla", model_path="openvla/openvla-7b"))
+    assert isinstance(vla, OpenVLA)
+    assert isinstance(vla, BaseVLA)
+
+
+def test_create_vla_openvla_field_passthrough():
+    """backend='openvla' 透传 openvla 特化字段（quantization + dtype）。"""
+    vla = create_vla(
+        VLAConfig(
+            backend="openvla",
+            model_path="x",
+            openvla=OpenVLAConfig(quantization="none"),
+        )
+    )
+    assert vla.quantization == "none"
+    assert vla._dtype_str == "bfloat16"
+
+
+def test_create_vla_openvla_missing_model_path():
+    """backend='openvla' 缺 model_path → 构造校验抛 ValueError。"""
+    with pytest.raises(ValueError):
         create_vla(VLAConfig(backend="openvla"))
 
 

@@ -134,12 +134,38 @@ class MockConfig:
 
 
 @dataclass
+class OpenVLAConfig:
+    """OpenVLA 后端特化配置（仅 vla.backend == "openvla" 时生效）。
+
+    与 LerobotConfig / MockConfig 同模式：顶层 backend 决定大类，嵌套特化字段决定细节。
+
+    Attributes:
+        unnorm_key: 反归一化键，决定动作物理量纲与顺序。
+            "bridge_orig"（BridgeData V2 训练版）顺序与 Action7D 一致；
+            LIBERO 等微调版顺序可能不同，使用前需核对。
+        attn_impl: attention 实现，"flash_attention_2"（需安装 flash-attn，
+            缺包时后端自动回退 eager）| "eager"。
+        device: 推理设备，默认 "cuda:0"（quantization="4bit" 时被 device_map 覆盖）。
+        dtype: 推理精度字符串（构造期不解析为 torch.dtype，避免 import torch），
+            取值 "bfloat16" | "float16" | "float32"。
+        quantization: 量化等级，"4bit"（bnb nf4，4060 8GB 默认，~4GB 显存）
+            | "none"（bf16 全精度，需 16GB+ 显存）。
+    """
+    unnorm_key: str = "bridge_orig"
+    attn_impl: str = "flash_attention_2"
+    device: str = "cuda:0"
+    dtype: str = "bfloat16"
+    quantization: str = "4bit"
+
+
+@dataclass
 class VLAConfig:
     backend: str = "mock"
     model_path: Optional[str] = None
     # iter11-reset-multicam:max_steps 字段已删除(iter 10 后无消费方)
     mock: MockConfig = field(default_factory=MockConfig)
     lerobot: LerobotConfig = field(default_factory=LerobotConfig)
+    openvla: OpenVLAConfig = field(default_factory=OpenVLAConfig)
 
 
 @dataclass

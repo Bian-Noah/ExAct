@@ -1,61 +1,82 @@
 # ============================================================================
-# ExAct 依赖清单 —— 统一 pip 安装（Linux + CUDA + Python 3.12）
+# ExAct 依赖汇聚文件 —— 全项目依赖总览（含 VLA 后端互斥说明）
 # ============================================================================
 #
-# 【安装顺序约定（重要）】
-#   1. 先装 CUDA 版 PyTorch。lerobot 0.6.x 强制 torch>=2.7,<2.12、
-#      torchvision>=0.22,<0.27。不要在下面的 requirements 里重复 pip install
-#      torch/torchvision，否则会被覆盖为 PyPI 默认的 CPU/最新版：
-#        pip install "torch>=2.7,<2.12" "torchvision>=0.22,<0.27" \
-#            --index-url https://download.pytorch.org/whl/cu128
-#      cu128 按显卡驱动可选 cu124/cu126，对照表见 https://pytorch.org/get-started/locally/
-#   2. 再装本文件：pip install -r requirements.txt
-#      此时 lerobot 看到 torch 已满足约束，不会重装。
-#   3. pybullet 在 Python 3.12 上无预编译 wheel（PyPI 最新 3.2.7 仅到 cp311），
-#      pip 会走源码编译，需要本机有编译工具链；cmake 由 lerobot 依赖自动带上。
-#      编译耗时数分钟，属正常现象。
-#   4. 装完跑 pip check 验证依赖闭环；缺啥补啥（普通 pip install，不要加
-#      --no-deps，让 pip 自行协调传递依赖）。
+# 【文件定位】
+#   本文件是"依赖汇聚文件"：公共依赖 + 各 VLA 后端依赖都列在此处，方便查看
+#   全貌。由于 VLA 后端之间存在【版本硬冲突】，不能一次全装，必须按需选择。
 #
-# 【版本策略】
-#   - lerobot：项目代码锁定语义 >=0.6（用到 0.6 引入的 make_pre_post_processors
-#     API，0.4 无此入口；0.6.1 实测验证）。0.6.1 要求 Python>=3.12。
-#   - torch / torchvision：不写在此文件（避免覆盖 CUDA 版），约束见第 1 步命令。
-#   - 其余依赖不指定版本，由 pip resolver 统一协调；numpy 会被 lerobot 约束在
-#     >=2.0,<2.3，无需手工处理。
+#   ⚠️ VLA 后端二选一（互斥，不可同时安装！）冲突根源：
+#       lerobot[smolvla] : transformers>=5.4,<5.6 | torch>=2.7,<2.12 | numpy>=2.0,<2.3 | Python>=3.12
+#       OpenVLA          : transformers==4.40.1    | torch==2.2.0      | numpy<2.0      | Python 3.10/3.11
+#       两者在 transformers / torch / tokenizers / numpy 上版本交集为空。
+#
+# 【安装方法（按需分开安装）】
+#   1. 决定用哪个 VLA 后端（当前默认 OpenVLA，见下方路线 B 块）。
+#   2. 只保留对应块：用 OpenVLA → B 块保持取消注释、A 块保持注释；
+#      切回 lerobot → 注释掉 B 块、取消 A 块注释（并注意 Python 需 >=3.12、
+#      torch 需按 A 块注释里的命令另装 CUDA 版）。
+#   3. pip install -r requirements.txt
+#      如果同时取消 A、B 两块注释，pip 会报依赖冲突——这是预期的，不是 bug。
+#
+# 【Python / torch 说明】
+#   - OpenVLA 路线：Python 3.10/3.11（torch 2.2.0 wheel 仅到 cp311）。
+#   - lerobot 路线：Python>=3.12；torch 需先装 CUDA 版（见 A 块注释）。
+# ============================================================================
+
+# ============================================================================
+# 一、公共依赖（所有 VLA / robot 场景必装）
 # ============================================================================
 
 # --- 仿真环境 ---
-pybullet                 # 物理仿真本体；Python 3.12 需源码编译（见文件头第 3 条）
+pybullet                 # 物理仿真；3.10/3.11 有预编译 wheel（3.12 需源码编译）
 
-# --- 图像处理 ---
-Pillow                   # PNG/JPEG 编码解码（observe 工具）
-imageio                  # 异步 PNG IO（image_store 持久化，imageio.v3 API）
-# iter12 实验视频录制引入（2026-08-29）：
-#   VideoWriter 封装 cv2.VideoWriter 写 mp4（mp4v/avc1），无头 DIRECT 模式可用。
-#   注意：当前 exact 环境未安装，需手动执行
-#     /Users/noah/miniconda3/envs/exact/bin/pip install opencv-python-headless
-opencv-python-headless   # 无头版 OpenCV（无 GUI 依赖，服务端安全）
+# --- 图像处理（observe 工具 / image_store 持久化 / iter12 视频录制）---
+Pillow
+imageio
+opencv-python-headless==4.10.0.84   # 锁 4.10：numpy 约束无上限（>=1.23.5），兼容 numpy 1.x/2.x；
+                                    # 新版 opencv 收紧到 numpy>=2，会与 OpenVLA 的 numpy<2.0 冲突
 
 # --- 配置加载 ---
-PyYAML                   # 加载 yaml 配置文件
+PyYAML
 
-# --- LLM / Agent 编排 ---
-langchain-core           # BaseTool、Message 类型（Agent 工具契约）
-langchain-openai         # ChatOpenAI（兼容 OpenAI 接口的 LLM）
-langgraph                # Agent 状态图运行时
-pydantic                 # 工具入参 schema 校验
-
-# --- VLA 模型后端 ---
-# [smolvla] extra 同时带 SmolVLA/pi0 需要的 transformers、accelerate、num2words，
-# 基础 ACT / Diffusion / VQ-BeT 也涵盖在内。纯 ACT 场景可改回 lerobot 减负。
-lerobot[smolvla]
-lerobot[dataset]          # 脚本需要（数据集读写/可视化，与 [smolvla] extra 有重叠但显式声明便于排查）
-
-# --- VLA 量化（4bit/8bit，CUDA 下可用；代码要求 >=0.43）---
-bitsandbytes
-accelerate
+# --- LLM / Agent 编排（Agent 工具契约 + ChatOpenAI + 状态图运行时）---
+langchain-core
+langchain-openai
+langgraph
+pydantic
 
 # --- 测试 ---
 pytest
 pytest-cov
+
+# ============================================================================
+# 二、VLA 后端（二选一，互斥！不要同时取消两块注释）
+# ============================================================================
+
+# --- 路线 A：lerobot[smolvla]（旧默认；覆盖 ACT/Diffusion/SmolVLA/pi0）---
+#   需 Python>=3.12；torch 先装 CUDA 版（勿用 pip 覆盖）：
+#     pip install "torch>=2.7,<2.12" "torchvision>=0.22,<0.27" \
+#         --index-url https://download.pytorch.org/whl/cu128
+#   然后取消下面注释：
+# lerobot[smolvla]
+# lerobot[dataset]          # 数据采集/训练脚本需要
+# bitsandbytes              # 4bit/8bit 量化（代码要求 >=0.43）
+# accelerate
+
+# --- 路线 B：OpenVLA（当前默认；2026-08-30 决定弃用 lerobot 后采用）---
+#   需 Python 3.10/3.11（torch 2.2.0 wheel 仅到 cp311）
+transformers==4.40.1        # 冲突源：lerobot 需要 >=5.4
+timm==0.9.10                # Prismatic 视觉骨干（SigLIP）
+tokenizers==0.19.1          # 冲突源：transformers 5.4 要求 [0.22,0.23]
+peft==0.11.1
+sentencepiece==0.1.99
+accelerate>=0.25.0
+einops
+huggingface_hub<1.0         # transformers 4.40.1 要求 <1.0,>=0.19.3
+torch==2.2.0                # 冲突源：lerobot 需要 >=2.7,<2.12
+torchvision==0.17.0
+torchaudio==2.2.0
+numpy<2.0                   # 冲突源：lerobot 会锁 numpy>=2.0,<2.3（torch 2.2 ABI 问题）
+bitsandbytes>=0.43          # 4bit 量化；与 torch 2.2.0 兼容性待实测；仅 Linux+CUDA
+# flash-attn==2.5.5         # 可选加速（需编译）；缺包时 openvla_vla.py 自动回退 eager

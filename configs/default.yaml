@@ -18,11 +18,12 @@ env:
       resolution: [640, 480]
 
 vla:
-  backend: mock                   # "mock" | "lerobot"
+  backend: mock                   # "mock" | "lerobot" | "openvla"（llm_vla/small_vla 规划中）
   model_path: null                # 仅 lerobot / openvla 需要，mock 设为 null
                                   #   lerobot 例: "lerobot/act_aloha_sim_transfer_cube_human"
                                   #             "lerobot/smolvla_base"
                                   #             "lerobot/pi0_libero_finetuned"
+                                  #   openvla 例: "openvla/openvla-7b"
   # iter11-reset-multicam:max_steps 字段已删除(iter 10 后无消费方)
   mock:                           # 仅 backend: mock 时生效（mock 特化配置）
     variant: task                 # task | joint
@@ -36,6 +37,12 @@ vla:
                                   #   pi0:     fp16 ~14GB 装不下，8GB 卡必须 4bit（~4GB）
     # image_key: "observation.images.top"   # 可选，默认加载后从 policy.config 自动探测
     # action_dim: 14               # 可选，policy 输出维度，>7 时截前 7 维
+  openvla:                        # 仅 backend: openvla 时生效（OpenVLA-7B 特化配置）
+    unnorm_key: "bridge_orig"     # 反归一化键，决定动作量纲与顺序（LIBERO 微调版需核对）
+    attn_impl: "flash_attention_2"  # flash_attention_2 | eager（缺 flash-attn 自动回退）
+    device: "cuda:0"              # 推理设备（4bit 量化时走 device_map）
+    dtype: "bfloat16"             # bfloat16 | float16 | float32
+    quantization: "4bit"          # 4bit（bnb nf4，4060 ~4GB）| none（bf16 需 16GB+ 显存）
 
 llm:
   api_key: "YOUR_API_KEY_HERE"    # ★ 用户手动填写，提交代码时保持占位符
