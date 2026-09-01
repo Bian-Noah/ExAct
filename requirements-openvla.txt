@@ -11,13 +11,14 @@
 #   - 原 requirements.txt 是 lerobot 路线，与本文互斥，二选一。
 #
 # 【安装（一条命令）】
-#   conda create -n openvla python=3.11 -y && conda activate openvla
+#   conda create -n openvla python=3.11 -y && conda activate openvla   # Python 3.10~3.12 均可
 #   pip install -r requirements-openvla.txt
 #   pip check
 #
 # 【环境要求】
-#   - Python 3.10 或 3.11：OpenVLA 官方锁 torch 2.2.0，其 wheel 仅到 cp311
-#     （3.12 装不上）；顺带 pybullet 在 3.10/3.11 有预编译 wheel，无需源码编译。
+#   - Python 3.10~3.12 均可：OpenVLA 官方锁 torch 2.2.0，官方发布了 cp312 wheel
+#     （3.12 可直接 pip 安装）；pybullet 未锁版本，pip 自动选当前 Python 的预编译 wheel。
+#   - 注意：sentencepiece 需 >=0.2.0 才有 cp312 wheel（0.1.99 在 3.12 下会触发源码编译）。
 #
 # 【torch 平台说明】
 #   - torch==2.2.0 声明在下方，pip 按平台自动选 wheel：
@@ -29,7 +30,7 @@
 #   - bitsandbytes（4bit 量化）仅 Linux+CUDA 可用；macOS 装不上可注释掉该行。
 # ============================================================================
 
-# --- PyTorch 2.2（OpenVLA 官方锁定；Python 必须 <=3.11）---
+# --- PyTorch 2.2（OpenVLA 官方锁定；torch 2.2.0 官方提供 cp312 wheel，Python 3.10~3.12 可用）---
 torch==2.2.0
 torchvision==0.17.0
 torchaudio==2.2.0
@@ -39,7 +40,7 @@ transformers==4.40.1        # 与 lerobot[smolvla] 冲突源之一；openvla-7b 
 timm==0.9.10                # Prismatic 视觉骨干（SigLIP）
 tokenizers==0.19.1          # transformers 4.40.1 配套约束 <0.20,>=0.19
 peft==0.11.1                # 官方主依赖锁定（LoRA 权重加载路径）
-sentencepiece==0.1.99       # Llama tokenizer 加载
+sentencepiece>=0.2.0       # Llama tokenizer 加载；>=0.2.0 才提供 cp312 wheel（3.12 可用）
 accelerate>=0.25.0          # low_cpu_mem_usage=True 低内存加载
 einops                      # Prismatic 视觉骨干
 huggingface_hub<1.0         # transformers 4.40.1 要求 <1.0,>=0.19.3

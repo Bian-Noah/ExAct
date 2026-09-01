@@ -24,6 +24,17 @@ vla:
 python src/pipeline/script/verify_full_link.py --vla openvla --max-chunks 1
 ```
 
+模型级检测脚本（加载 + 多图推理，独立脚本不依赖项目代码，输出 `data/script/openvla-summary.json`）：
+
+```bash
+python scripts/models_detect/openvla-7b/verify_inference.py                 # 默认 4bit：自动下载 10 张 BridgeData 样本图并逐张推理（仅 CUDA）
+python scripts/models_detect/openvla-7b/verify_inference.py --quantization none   # bf16 全精度
+python scripts/models_detect/openvla-7b/verify_inference.py --image a.png --image b.png   # 显式指定多图
+```
+
+- 样本图自动从 HF `VyoJ/BridgeData-V2-Scripted-Images`（BridgeData V2 scripted 子集图像版）获取到 `data/images/bridge_samples/`（幂等），用 `--no-fetch` 可离线；国内环境设 `HF_ENDPOINT=https://hf-mirror.com`。
+- 每张图一次推理输出一个 7D 动作（单步，非 chunk）；`--samples N` 可对每图重复 N 次并做稳定性检查。
+
 ## 构造参数
 
 | 参数 | 默认值 | 说明 |
