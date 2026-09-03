@@ -100,6 +100,7 @@ def test_build_robot_widowx(monkeypatch):
         return True
 
     monkeypatch.setattr(wr, "ensure_urdf_downloaded", _fake_ensure_urdf)
+    monkeypatch.setattr(wr, "ensure_assets_downloaded", lambda *a, **k: 0)
     robot = build_robot(RobotConfig(type="widowx"))
     assert isinstance(robot, WidowxRobot)
     assert robot.arm_joint_indices == (0, 1, 2, 3, 4)
@@ -113,6 +114,7 @@ def test_build_robot_widowx(monkeypatch):
 def test_build_robot_widowx_uses_custom_config(monkeypatch):
     """自定义 widowx 特化配置 → 机器人属性随配置。"""
     monkeypatch.setattr(wr, "ensure_urdf_downloaded", lambda *a, **k: True)
+    monkeypatch.setattr(wr, "ensure_assets_downloaded", lambda *a, **k: 0)
     cfg = RobotConfig(
         type="widowx",
         widowx=WidowxRobotConfig(
@@ -145,6 +147,7 @@ def test_build_robot_unknown_type_lists_widowx():
 def test_widowx_robot_input_spec(monkeypatch):
     """input_spec → task 空间 7 维 / gripper_index=6。"""
     monkeypatch.setattr(wr, "ensure_urdf_downloaded", lambda *a, **k: True)
+    monkeypatch.setattr(wr, "ensure_assets_downloaded", lambda *a, **k: 0)
     robot = WidowxRobot(RobotConfig(type="widowx"))
     spec = robot.input_spec
     assert spec.space == "task"
@@ -155,6 +158,7 @@ def test_widowx_robot_input_spec(monkeypatch):
 def test_widowx_robot_home_joint_positions(monkeypatch):
     """home_joint_positions → 5 维全零。"""
     monkeypatch.setattr(wr, "ensure_urdf_downloaded", lambda *a, **k: True)
+    monkeypatch.setattr(wr, "ensure_assets_downloaded", lambda *a, **k: 0)
     robot = WidowxRobot(RobotConfig(type="widowx"))
     assert robot.home_joint_positions() == (0.0, 0.0, 0.0, 0.0, 0.0)
 

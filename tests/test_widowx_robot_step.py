@@ -107,9 +107,10 @@ def fake_pybullet(monkeypatch):
     fake.stepSimulation = stepSimulation
     fake.POSITION_CONTROL = 3
 
-    # 替换 robot 模块内 `p` 引用 + 禁用 URDF 下载（零网络）
+    # 替换 robot 模块内 `p` 引用 + 禁用 URDF/资产下载（零网络）
     monkeypatch.setattr(wr, "p", fake)
     monkeypatch.setattr(wr, "ensure_urdf_downloaded", lambda *a, **k: True)
+    monkeypatch.setattr(wr, "ensure_assets_downloaded", lambda *a, **k: 0)
     return fake
 
 

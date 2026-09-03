@@ -16,7 +16,7 @@ import pybullet as p
 
 from config.loader import RobotConfig
 from env.base import ActionSpec
-from env.robot.widowx.urdf_downloader import ensure_urdf_downloaded
+from env.robot.widowx.urdf_downloader import ensure_assets_downloaded, ensure_urdf_downloaded
 
 
 class WidowxRobot:
@@ -38,8 +38,17 @@ class WidowxRobot:
         self.ensure_urdf()
 
     def ensure_urdf(self) -> None:
-        """确保本地 URDF 存在，缺失则从配置 URL 下载（幂等）。"""
+        """确保本地 URDF 及其引用的 mesh 资产存在（缺失则下载，幂等）。
+
+        两步：① URDF 单文件（本地已有则跳过）；② 解析 URDF 内 package://
+        引用并补齐缺失资产（.stl/.png）。仅下载 URDF 而缺 mesh 时，
+        pybullet loadURDF 会失败（Cannot load URDF file），故两步都要执行。
+        """
         ensure_urdf_downloaded(
+            self.urdf_local_path,
+            self.urdf_url,
+        )
+        ensure_assets_downloaded(
             self.urdf_local_path,
             self.urdf_url,
         )
