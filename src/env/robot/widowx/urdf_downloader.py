@@ -2,12 +2,15 @@
 
 提供幂等的 URDF 资产下载：
 - `ensure_urdf_downloaded`: 确保 URDF 单文件存在（缺失则下载）。
-- `ensure_assets_downloaded`: 确保 URDF 引用的外部资产存在（缺失则批量下载）。
+- `ensure_assets_downloaded`: 确保 URDF 引用的 mesh 资产存在（缺失则批量下载）。
 
 背景：wx250.urdf 非自包含——其 `<visual>` 元素通过
-`package://widowx/meshes/...` 引用 10 个 .stl 与 1 个 .png（位于源仓库
-`<pkg_root>/meshes/` 下）。只下载 URDF 不下载引用资产，pybullet
-`loadURDF` 会因找不到 mesh 而失败（Cannot load URDF file）。
+`package://widowx/meshes/...` 引用多个 .stl（几何 mesh，位于源仓库
+`<pkg_root>/meshes/` 下）与 .png 纹理。只下载 URDF 不下载 mesh，
+pybullet `loadURDF` 会因找不到 mesh 而失败（Cannot load URDF file）。
+mesh（.stl/.dae/.obj 等）是加载必需，缺失即下载；纹理类（.png/.jpg 等）
+仅影响外观、非必需，一律跳过（源仓库路径常与实际不符，404 不应中断）。
+
 引用资产统一落盘到 URDF 同目录下，即 `package://widowx/<rest>` →
 `<urdf_dir>/<rest>`，与本地资产布局（robot/widowx/meshes/...）一致。
 """
@@ -27,6 +30,9 @@ _DOWNLOAD_TIMEOUT = 30
 
 # 匹配 URDF 内 package:// 资源引用，捕获 <rest>（pkg 名后、不含引号/空白的部分）
 _PACKAGE_URI_RE = re.compile(r'package://[A-Za-z0-9_.-]+/([^"\'\s]+)')
+
+# 纹理类扩展名：仅外观、非 URDF 加载必需，补齐时跳过（不因 404 中断）
+_TEXTURE_EXTS = (".png", ".jpg", ".jpeg", ".tga", ".bmp")
 
 
 def ensure_urdf_downloaded(local_path: str, url: str) -> bool:
@@ -120,11 +126,13 @@ def _ensure_within_dir(urdf_dir: str, target: str) -> bool:
 
 
 def ensure_assets_downloaded(urdf_path: str, urdf_url: str) -> int:
-    """确保 URDF 引用的 package:// 资产本地齐全，缺失则从源仓库下载（幂等）。
+    """确保 URDF 引用的 package:// mesh 资产本地齐全，缺失则下载（幂等）。
 
     URDF 可能已存在而引用资产缺失（如仅下载过 URDF 单文件的服务器），
-    因此本函数在 urdf 已存在时同样执行解析与补齐。单个资产下载失败会
-    抛 RuntimeError，但已补齐的部分保留（下次重试跳过）。
+    因此本函数在 urdf 已存在时同样执行解析与补齐。只处理 mesh 类引用
+    （.stl/.dae/.obj 等）；纹理类（.png/.jpg 等）仅影响外观、非加载必需，
+    一律跳过不下载。单个资产下载失败会抛 RuntimeError，但已补齐的部分
+    保留（下次重试跳过）。
 
     Args:
         urdf_path: 本地 URDF 文件路径（须已存在；不存在时直接返回 0）。
@@ -151,6 +159,11 @@ def ensure_assets_downloaded(urdf_path: str, urdf_url: str) -> int:
     urdf_dir = os.path.dirname(os.path.abspath(urdf_path))
     downloaded = 0
     for rest in refs:
+        # 纹理类（png 等）仅外观、非 URDF 加载必需，且源仓库路径常与
+        # urdf 引用不符（404）——跳过，避免中断加载流程
+        if rest.lower().endswith(_TEXTURE_EXTS):
+            logger.debug("纹理类引用跳过（非必需）: %s", rest)
+            continue
         target = os.path.join(urdf_dir, *rest.split("/"))
         if not _ensure_within_dir(urdf_dir, target):
             logger.warning("跳过越界资产引用（非 URDF 目录内）: %s", rest)

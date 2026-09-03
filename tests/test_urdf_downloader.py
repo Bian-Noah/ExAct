@@ -194,3 +194,21 @@ def test_assets_derive_fail_raises(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError) as exc_info:
         ensure_assets_downloaded(str(urdf_path), "http://example.com/wx250.urdf")
     assert "资产根" in str(exc_info.value) or "urdf_url" in str(exc_info.value)
+
+
+def test_assets_skips_texture_refs(tmp_path, monkeypatch):
+    """纹理类引用（.png）非必需 → 跳过不下载，返回 0 且零网络请求。"""
+    urdf_path = tmp_path / "wx250.urdf"
+    urdf_path.write_bytes(
+        '<robot><material name="black"><texture filename="package://widowx/meshes/interbotix_black.png"/></material></robot>'.encode()
+    )
+
+    def _should_not_call(*args, **kwargs):
+        raise AssertionError("requests.get 不应被调用（纹理引用应跳过）")
+
+    monkeypatch.setattr(urdf_downloader.requests, "get", _should_not_call)
+
+    assert ensure_assets_downloaded(
+        str(urdf_path),
+        "https://github.com/example/repo/raw/main/pkg/widowx/urdf/wx250.urdf",
+    ) == 0
