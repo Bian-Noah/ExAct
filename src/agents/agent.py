@@ -28,7 +28,7 @@ from langgraph.graph.message import MessagesState
 from typing_extensions import TypedDict
 
 from agents.core import AgentResult, ToolCallRecord
-from agents.prompt import DEFAULT_SYSTEM_PROMPT
+from agents.prompt import build_system_prompt
 
 # ReAct 循环最大轮数（默认值，可被 create_exact_agent 参数覆盖）
 # 每轮：LLM 决策 + 工具执行。
@@ -54,21 +54,27 @@ def create_exact_agent(
     system_prompt: str = None,
     max_react_rounds: int = MAX_REACT_ROUNDS,
     max_tool_calls: int = MAX_TOOL_CALLS,
+    extra_prompt: str | None = None,
 ):
     """用 StateGraph 拼装 agent（主线程同步执行工具）。
 
     Args:
         llm: ChatOpenAI 实例（或其他 BaseChatModel）。
         tools: BaseTool 实例列表。
-        system_prompt: 可选系统提示词。
+        system_prompt: 显式完整系统提示词（全文语义）。提供时优先于 extra_prompt；
+            为 None 时由 extra_prompt 决定（见下）。
         max_react_rounds: 超过此节点访问次数后中断（默认 5）。
         max_tool_calls: 工具调用累计上限（默认 3）。
+        extra_prompt: 额外提示词段（来自 config agent.extra_prompt）。
+            仅当 system_prompt 为 None 时生效：为空 → 用 DEFAULT_SYSTEM_PROMPT
+            （历史完整文案）；非空 → 用 COMMON_SYSTEM_PROMPT + 配置文案，
+            替换默认的"后端模型 / 运行策略"说明。
 
     Returns:
-        CompiledStateGraph，可通过 .invoke({"{"..."） 调用。
+        CompiledStateGraph，可通过 .invoke({"messages": ...}) 调用。
     """
     if system_prompt is None:
-        system_prompt = DEFAULT_SYSTEM_PROMPT
+        system_prompt = build_system_prompt(extra_prompt)
 
     tools_by_name = {t.name: t for t in tools}
     llm_with_tools = llm.bind_tools(tools)

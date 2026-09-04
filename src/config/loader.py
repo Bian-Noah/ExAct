@@ -273,9 +273,13 @@ class TaskConfig:
 
 @dataclass
 class AgentConfig:
-    """Agent 行为配置（ReAct 轮数 + 工具调用上限）。"""
+    """Agent 行为配置（ReAct 轮数 + 工具调用上限 + 额外提示词段）。"""
     max_react_rounds: int = 5
     max_tool_calls: int = 3
+    # 额外提示词：非空时替换系统提示词中的"后端模型/运行策略"说明段
+    # （COMMON 通用段与报告契约固定保留）。空 = 用历史完整提示词，行为不变。
+    # yaml 多行文本用 | 块；命名取"额外提示词"，不是"VLA 模型的提示词"。
+    extra_prompt: str = ""
 
 
 @dataclass

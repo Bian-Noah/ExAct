@@ -82,6 +82,11 @@ task:
 agent:
   max_react_rounds: 5
   max_tool_calls: 3
+  # extra_prompt: ""   # 额外提示词（可选）:替换系统提示词中的"后端模型/运行策略"说明段,
+                       # 通用段与报告契约保持固定。空 = 用历史完整提示词,行为不变。
+                       # 多行文本用 yaml | 块,例如:
+                       # extra_prompt: |
+                       #   本场景运行 OpenVLA(bridge_orig)...
 
 experiment:
   enabled: true                  # Iteration 3 启用：开启后每次跑 pipeline 自动落盘到 data/experiment/{timestamp}/

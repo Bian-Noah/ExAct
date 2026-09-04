@@ -1,6 +1,15 @@
 """Agent 提示词常量与解析工具。
 
-DEFAULT_SYSTEM_PROMPT 从 agents.agent 迁移至此，避免提示词与 agent 逻辑耦合。
+提示词结构（config-extra-prompt，可配置额外提示词段）：
+- DEFAULT_SYSTEM_PROMPT：历史完整提示词，逐字保留。未配置额外提示词时作为唯一
+  提示词使用，保证行为与历史完全一致。
+- COMMON_SYSTEM_PROMPT：通用段（角色 / 工具说明 / 流程 / 注意与报告契约）。仅在
+  配置了额外提示词时使用，与配置文案拼接后发给 LLM；其中报告契约（失败归因、
+  复位与视角声明）不可被配置覆盖。
+- build_system_prompt(extra_prompt)：额外提示词为空 → 返回 DEFAULT_SYSTEM_PROMPT；
+  非空 → 返回 COMMON_SYSTEM_PROMPT + 配置文案。配置文案用于替换历史上散落在完整
+  提示词中的"后端模型 / 运行策略"说明（模型能力边界、指令规范、何时 reset 等）。
+
 失败归因的合法枚举值由提示词契约定义，parse_attribution 的解析逻辑与之一致。
 """
 
@@ -53,6 +62,60 @@ DEFAULT_SYSTEM_PROMPT = (
     "    · 执行器问题：VLA/执行器未按指令顺利执行，机械臂动作异常或未达到预期位姿。\n"
     "  若任务成功，则不要输出失败归因行。\n"
 )
+
+# ---------------------------------------------------------------------------
+# COMMON_SYSTEM_PROMPT：通用段（净化版），仅"配置了额外提示词"时启用。
+# 报告契约部分直接从 DEFAULT_SYSTEM_PROMPT 原位截取，避免两份契约漂移。
+# 头部为净化后的通用说明：不含模型能力边界 / 指令书写规范 / reset 策略等
+# 应交给"额外提示词段"负责的内容（这些内容随 extra_prompt 配置被替换）。
+# ---------------------------------------------------------------------------
+
+# 契约锚点：从此处起的内容必须逐字保留（parse_attribution 依赖其中的归因格式）。
+_CONTRACT_ANCHOR = "注意：\n"
+_CONTRACT_START = DEFAULT_SYSTEM_PROMPT.find(_CONTRACT_ANCHOR)
+if _CONTRACT_START == -1:
+    raise ValueError(
+        "DEFAULT_SYSTEM_PROMPT 中找不到契约锚点 '注意：\\n'，"
+        "提示词结构已变动，请同步维护 COMMON_SYSTEM_PROMPT"
+    )
+_COMMON_TAIL = DEFAULT_SYSTEM_PROMPT[_CONTRACT_START:]
+
+_COMMON_HEAD = (
+    "你是 ExActAgent，一个具身智能助手。你可以调用以下工具来感知和操作环境：\n"
+    "- observe(target?: str): 观察当前场景，返回物体列表、末端执行器位置以及当前视角的 RGB 图像（通过 LangChain 标准 image content block 返回）。iter11 起 env 可能配多个相机，observe 一次返回多张 image block（按物理位置顺序）。\n"
+    "- action(instruction: str = \"\", operation: str = \"vla\"): 对场景执行动作。"
+    "具体模式（vla 推理 / reset 复位）与指令书写要求以额外提示词段和工具说明为准；"
+    "若工具返回拒绝原因，按原因修正后重试。\n"
+    "- explore(sub_action: str, note?: str): 探索笔记工具（仅当 explore 已启用并注入时可用）。"
+    "sub_action 为 'read_notes' 时查阅既有探索笔记；为 'write_note' 时写入一条新笔记"
+    "（note 不能含换行，建议使用英文）。执行任务前先 read_notes 查阅既有经验；"
+    "执行过程中对失败归因或对「这条指令能不能成」的猜测，建议 write_note 记录，便于跨实验复盘。\n"
+    "请按以下流程完成任务：\n"
+    "1. 首先调用一次 observe 工具（不传 target），获取场景的 RGB 图像与状态描述。\n"
+    "2. 仔细查看返回的图像，识别物体位置、颜色、形状以及与机械臂末端的相对关系。\n"
+    "3. 基于图像与文本观察结果，规划下一步动作并调用 action 工具（**指令内容必须为英文**）。\n"
+    "4. 任务完成后，用自然语言回答任务结果；如果无法继续，也请直接用文本回复。\n"
+)
+
+COMMON_SYSTEM_PROMPT: str = _COMMON_HEAD + _COMMON_TAIL
+
+
+def build_system_prompt(extra_prompt: str | None = None) -> str:
+    """组装最终 system prompt。
+
+    Args:
+        extra_prompt: 额外提示词（来自 config agent.extra_prompt，多行字符串）。
+            为空/None → 返回 DEFAULT_SYSTEM_PROMPT（历史完整文案，行为不变）；
+            非空 → 返回 COMMON_SYSTEM_PROMPT + 配置文案（配置文案替换默认的
+            "后端模型 / 运行策略"说明，COMMON 与报告契约保持不变）。
+
+    Returns:
+        组装后的完整 system prompt 字符串。
+    """
+    if extra_prompt is None or not extra_prompt.strip():
+        return DEFAULT_SYSTEM_PROMPT
+    return COMMON_SYSTEM_PROMPT.rstrip("\n") + "\n\n" + extra_prompt.strip() + "\n"
+
 
 # 失败归因合法枚举值（与提示词契约一致，parse_attribution 按此匹配）
 ATTRIBUTION_VALUES: tuple[str, ...] = (

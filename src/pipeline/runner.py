@@ -158,10 +158,12 @@ def run_pipeline(
         if explore is not None:
             tools.append(ExploreTool(explore=explore))
 
-        # 8. 组装 agent（max_react_rounds / max_tool_calls 从 AgentConfig 读取）
+        # 8. 组装 agent（max_react_rounds / max_tool_calls / extra_prompt 从 AgentConfig 读取）
+        #    extra_prompt 仅作数据透传；提示词组装（COMMON + 额外段）由 create_exact_agent 内部完成
         agent = create_exact_agent(
             llm,
             tools,
+            extra_prompt=config.agent.extra_prompt,
             max_react_rounds=config.agent.max_react_rounds,
             max_tool_calls=config.agent.max_tool_calls,
         )
