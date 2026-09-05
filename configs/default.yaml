@@ -4,18 +4,39 @@
 
 env:
   mode: direct                # "direct" | "gui"   是否开 GUI 窗口
-  renderer: auto              # "auto" | "cpu" | "gpu"   渲染器选择（auto = 平台自动判断）
+  renderer: auto              # "auto" | "cpu" | "gpu"   渲染器选择(auto = 平台自动判断)
   camera_resolution: [640, 480]   # list，加载时转为 tuple[int, int]
   # iter11-reset-multicam:多相机配置,默认 1 个 overhead 相机
+  # 场景对齐(openvla-scene-alignment):参数已针对"桌面顶 z=0.30,中心(0.5,0)"的桌面构图调整,
+  # 经本地渲染验证(.local/render_check/*.png)对比确认。
   cameras:
+    # OpenVLA 仅消费此图;target/distance/yaw/pitch 经过本地渲染(top.png)验证
     - name: observation.images.top
-      target: [0.5, 0.0, 0.5]
-      distance: 1.5
-      yaw: 50
-      pitch: -35
+      target: [0.5, 0.0, 0.30]
+      distance: 0.9
+      yaw: 90
+      pitch: -15
       roll: 0
       fov: 60
       resolution: [640, 480]
+    # 侧视,提供臂与方块高度关系(给 LLM observe)
+    - name: observation.images.side
+      target: [0.5, 0.0, 0.30]
+      distance: 1.0
+      yaw: 90
+      pitch: -20
+      roll: 0
+      fov: 60
+      resolution: [640, 480]
+    # 近景俯视工位:夹爪与方块居中(LLM 看到抓取目标姿态;非真 wrist 相机)
+    - name: observation.images.wrist
+      target: [0.5, 0.0, 0.34]
+      distance: 0.35
+      yaw: 90
+      pitch: -40
+      roll: 0
+      fov: 75
+      resolution: [256, 256]
 
 vla:
   backend: mock                   # "mock" | "lerobot" | "openvla"（llm_vla/small_vla 规划中）
@@ -76,7 +97,9 @@ task:
   default_user_goal: "把机械臂移到红色方块上方"
   objects:
     - type: cube
-      pos: [0.5, 0, 0.1]
+      # 场景对齐(openvla-scene-alignment):cube 落在桌面顶 0.30 + 0.05 余量(半 cube 高 0.025)
+      # 与 src/env/pybullet_env.py 模块常量 TABLE_TOP_Z 人工同步
+      pos: [0.5, 0, 0.35]
       color: red
 
 agent:

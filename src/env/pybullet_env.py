@@ -35,6 +35,19 @@ EE_LINK_INDEX = RobotConfig().panda.ee_link_index
 # 夹爪关节索引
 FINGER_JOINT_INDICES = tuple(RobotConfig().panda.finger_joint_indices)
 
+# ---------------------------------------------------------------------------
+# 场景对齐(openvla-scene-alignment Stage2):程序化薄桌面。
+# 目的:让任务方块放在"桌面"上而非地面,使抓取接近动作回到 bridge_orig
+# 训练分布熟悉的"桌面上方、小落差、水平接近"模式。
+# ⚠️ TABLE_TOP_Z 与 yaml 中 task.objects 的 cube 初始 z 需人工同步:
+#    cube 初始 z ≈ TABLE_TOP_Z + 0.05(留 1 个方块高的下落余量)。
+# 验证通过后可二期迁入 EnvConfig,此处先以模块常量固定(改动一行即可微调)。
+# ---------------------------------------------------------------------------
+TABLE_TOP_Z: float = 0.30          # 桌面顶面高度(m),匹配 ee home z≈0.36(悬于桌面上方数厘米)
+TABLE_CENTER: tuple[float, float] = (0.5, 0.0)   # 桌面中心(臂前方工作区)
+TABLE_HALF_SIZE: float = 0.30      # 桌面半宽(总 0.6×0.6)
+TABLE_THICKNESS: float = 0.04      # 桌面厚度(静态薄板,无腿悬浮,验证期可接受)
+
 # iter2-renderer-env-mode：renderer 配置合法值
 _RENDERER_VALID_VALUES: frozenset[str] = frozenset({"auto", "cpu", "gpu"})
 
@@ -93,6 +106,7 @@ class PyBulletEnv(BaseEnv):
         self._robot_id = None
         self._object_ids: list[int] = []
         self._plane_id = None
+        self._table_id: int | None = None  # 场景对齐 Stage2:程序化薄桌面(可选元素)
         # iter12-video-recording：抓帧组件（未启用时为 None）
         self._capturer: FrameCapturer | None = None
         self._init_video_capture()
@@ -229,6 +243,9 @@ class PyBulletEnv(BaseEnv):
             useFixedBase=True,
             physicsClientId=self._client_id,
         )
+
+        # 场景对齐 Stage2:创建程序化薄桌面(须在任务物体加载前,方块将落在桌面上)
+        self._table_id = self._create_table(self._client_id)
 
         # 加载任务物体
         self._object_ids = []
@@ -410,6 +427,43 @@ class PyBulletEnv(BaseEnv):
             obs["rgb"] = None
 
         return obs
+
+    def _create_table(self, client_id: int) -> int:
+        """创建静态薄桌面(场景对齐 Stage2,方块落在桌面上)。
+
+        桌面为静态多体(baseMass=0,无腿悬浮,验证期可接受),顶面 z=TABLE_TOP_Z。
+        桌体中心 z = TABLE_TOP_Z - TABLE_THICKNESS / 2。
+
+        Args:
+            client_id: pybullet 连接 id。
+
+        Returns:
+            桌面 body id(由 reset 保存到 self._table_id)。
+        """
+        half_extents = [
+            TABLE_HALF_SIZE,
+            TABLE_HALF_SIZE,
+            TABLE_THICKNESS / 2.0,
+        ]
+        center_z = TABLE_TOP_Z - TABLE_THICKNESS / 2.0
+        visual = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=half_extents,
+            rgbaColor=[0.55, 0.42, 0.30, 1.0],
+            physicsClientId=client_id,
+        )
+        collision = p.createCollisionShape(
+            p.GEOM_BOX,
+            halfExtents=half_extents,
+            physicsClientId=client_id,
+        )
+        return p.createMultiBody(
+            baseMass=0,
+            baseCollisionShapeIndex=collision,
+            baseVisualShapeIndex=visual,
+            basePosition=[TABLE_CENTER[0], TABLE_CENTER[1], center_z],
+            physicsClientId=client_id,
+        )
 
     def close(self) -> None:
         """释放所有资源，断开仿真连接。"""

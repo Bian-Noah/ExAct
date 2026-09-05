@@ -174,6 +174,18 @@ class Executor:
             raw = vla_output  # 兼容裸值输入
 
         # ★ 3. adapter 一次转换整 chunk → shape (N, env_dim)
+        # 诊断(场景对齐 Stage1):打印 VLA 原始动作,区分"模型输出偏"与"执行映射错";
+        # 仅进日志,不改 ToolMessage 内容(避免影响 LLM 决策与对照实验纯度)。
+        if isinstance(raw, np.ndarray) and raw.size:
+            first_row = np.asarray(raw[0]).reshape(-1)[:7]
+            spec_components = getattr(
+                getattr(vla_output, "spec", None), "components", None
+            )
+            print(
+                "[executor] VLA raw action(7D): "
+                f"{np.round(first_row, 4).tolist()}"
+                + (f" spec={spec_components}" if spec_components else "")
+            )
         actions = adapter(raw, env) if adapter is not None else raw
 
         # ★ Iteration 6：链路验证 print（多相机取首张）
