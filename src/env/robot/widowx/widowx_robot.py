@@ -70,8 +70,12 @@ class WidowxRobot:
         self._urdf_local_path = value
 
     def home_joint_positions(self) -> tuple[float, ...]:
-        """WidowX 5 臂关节 home pose（全零近似，复位起点）。"""
-        return (0.0, 0.0, 0.0, 0.0, 0.0)
+        """WidowX 5 臂关节 home pose(与 scripts/camera/render_widowx.py DEFAULT_JOINT 对齐)。
+
+        wrist_angle = -π/2 让腕段折 -90° 垂直朝下,夹爪自然下垂指向桌面工作区,
+        符合 bridge_orig 训练数据中"机械臂准备抓桌面物体"的画面分布。
+        """
+        return (0.0, 0.0, 0.0, -np.pi / 2.0, 0.0)
 
     @property
     def input_spec(self) -> ActionSpec:

@@ -40,10 +40,10 @@ FINGER_JOINT_INDICES = tuple(RobotConfig().panda.finger_joint_indices)
 # 目的:让任务方块放在"桌面"上而非地面,使抓取接近动作回到 bridge_orig
 # 训练分布熟悉的"桌面上方、小落差、水平接近"模式。
 # ⚠️ TABLE_TOP_Z 与 yaml 中 task.objects 的 cube 初始 z 需人工同步:
-#    cube 初始 z ≈ TABLE_TOP_Z + 0.05(留 1 个方块高的下落余量)。
+#    cube 落稳 z = TABLE_TOP_Z + CUBE_HALF (0.025)。
 # 验证通过后可二期迁入 EnvConfig,此处先以模块常量固定(改动一行即可微调)。
 # ---------------------------------------------------------------------------
-TABLE_TOP_Z: float = 0.30          # 桌面顶面高度(m),匹配 ee home z≈0.36(悬于桌面上方数厘米)
+TABLE_TOP_Z: float = 0.10          # 桌面顶面高度(m),与 scripts/camera/render_widowx.py --table-z 默认 0.10 对齐
 TABLE_CENTER: tuple[float, float] = (0.5, 0.0)   # 桌面中心(臂前方工作区)
 TABLE_HALF_SIZE: float = 0.30      # 桌面半宽(总 0.6×0.6)
 TABLE_THICKNESS: float = 0.04      # 桌面厚度(静态薄板,无腿悬浮,验证期可接受)
@@ -243,6 +243,9 @@ class PyBulletEnv(BaseEnv):
             useFixedBase=True,
             physicsClientId=self._client_id,
         )
+        # 把关节拉到 home pose(与 scripts/camera/render_widowx.py DEFAULT_JOINT 对齐),
+        # 避免 URDF 默认姿态下腕段不朝下、夹爪不指向桌面工作区。
+        self.reset_arm_to_home()
 
         # 场景对齐 Stage2:创建程序化薄桌面(须在任务物体加载前,方块将落在桌面上)
         self._table_id = self._create_table(self._client_id)
