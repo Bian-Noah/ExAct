@@ -67,14 +67,16 @@ class ActionInput(BaseModel):
     """ActionTool 输入参数。
 
     iter11-reset-multicam:加 operation 字段。
-      - "vla"(默认):执行 VLA 推理,instruction 必填且需符合 smolVLA 规范
+      - "vla"(默认):执行 VLA 推理,instruction 必填且需符合 OpenVLA bridge_orig 指令分布
       - "reset":把机械臂关节瞬时复位到 home,不走 VLA,instruction 可省略
     """
 
     instruction: str = Field(
         default="",
-        description="English action instruction, e.g. 'pick red cube' or 'move to (0.5, 0, 0.3)'. "
-        "Required for operation='vla', can be empty for operation='reset'.",
+        description="English action instruction following OpenVLA bridge_orig "
+        "training distribution (short verb + object + optional location/container, "
+        "≤50 chars). Required for operation='vla', can be empty for operation='reset'. "
+        "Examples: 'lift red cube', 'put egg into pot'.",
     )
     operation: Literal["vla", "reset"] = Field(
         default="vla",
@@ -98,11 +100,14 @@ class ActionTool(BaseTool):
     description: str = (
         "Execute an action on the scene. Two operation modes:\n"
         "  - operation='vla' (default): run VLA inference with the given instruction.\n"
-        "    Instruction must be a single verb-led English sentence (≤30 chars).\n"
+        "    Instruction should follow OpenVLA bridge_orig natural instruction distribution:\n"
+        "    short verb + object + optional location/container (≤50 chars, English only,\n"
+        "    no period/question/exclamation). e.g. 'lift red cube', 'put egg into pot',\n"
+        "    'move orange near coke'. See the extra_prompt section for details.\n"
         "  - operation='reset': instantly reset arm joints to home pose (bypass VLA).\n"
         "    Use this when VLA is OOD and joints are saturated to a limit pose.\n"
         "Examples:\n"
-        "  action(operation='vla', instruction='pick red cube')\n"
+        "  action(operation='vla', instruction='lift red cube')\n"
         "  action(operation='reset')"
     )
     args_schema: Type[BaseModel] = ActionInput
@@ -144,19 +149,19 @@ class ActionTool(BaseTool):
         _log = logging.getLogger("action")
         _log.info(f"action 调用开始 operation={operation} instruction={instruction}")
 
-        # iter11-reset-multicam:reset 路径不走 validate_instruction,不消耗 VLA 规范
+        # iter11-reset-multicam:reset 路径不走 validate_instruction,不消耗指令规范
         if operation == "reset":
             return self._execute_reset()
 
-        # vla 路径:校验 instruction 非空 + smolVLA 规范
+        # vla 路径:校验 instruction 非空 + OpenVLA bridge_orig 指令格式约束
         if not instruction or not instruction.strip():
             return "错误：动作指令不能为空"
 
-        # iter9：smolVLA 指令校验拦截（只拒绝不修，返回原因让 LLM 自我纠正）
+        # iter9：指令校验拦截（只拒绝不修，返回原因让 LLM 自我纠正）
         reason = validate_instruction(instruction)
         if reason is not None:
             _log.info(f"action 被指令校验拒绝 reason={reason}")
-            return f"指令不符合 smolVLA 规范：{reason}"
+            return f"指令不符合 OpenVLA bridge_orig 指令分布：{reason}"
 
         # 尝试从指令中解析目标坐标
         target_pos = parse_target_pos(instruction)

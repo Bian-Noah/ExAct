@@ -68,7 +68,7 @@ SCRIPT_DATA_ROOT = ROOT / "data" / "scriptData"
 # run_dir 前缀——与 verify_full_link 区分
 RUN_DIR_PREFIX = "three_stage_pick"
 
-# 三个 stage 的固定指令（smolVLA 规范：动词开头 / 全英文 / ≤30 字符）
+# 三个 stage 的固定指令（OpenVLA bridge_orig 指令分布：动词开头 / 全英文 / ≤50 字符）
 DEFAULT_STAGES: tuple[tuple[str, str], ...] = (
     ("approach", "move above yellow cube"),
     ("descend",  "descend to yellow cube"),

@@ -60,7 +60,7 @@ DEFAULT_CONFIG_PATHS = (
 )
 # 脚本数据根目录（绝对路径，与 experiment 独立）
 SCRIPT_DATA_ROOT = ROOT / "data" / "scriptData"
-# 硬编码默认指令（捡起方块，smolVLA 规范：动词 pick 开头 / 全英文 / ≤30 字符）
+# 硬编码默认指令（捡起方块，OpenVLA bridge_orig 指令分布：动词 pick 开头 / 全英文 / ≤50 字符）
 DEFAULT_INSTRUCTION = "pick up the cube"
 
 
